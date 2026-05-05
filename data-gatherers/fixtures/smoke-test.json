@@ -1,0 +1,23 @@
+{
+  "asOf": "2026-05-05T00:00:00Z",
+  "summary": "Smoke test: $1 buys in two liquid blue-chips outside the strategy. Purpose is to verify the executor's live submission path works end-to-end — not actual investment decisions.",
+  "recommendations": [
+    {
+      "action": "buy",
+      "ticker": "AAPL",
+      "amount": { "type": "dollars", "value": 1 },
+      "rationale": "Smoke test — verify live order path.",
+      "confidence": "high",
+      "linkedThesis": null
+    },
+    {
+      "action": "buy",
+      "ticker": "KO",
+      "amount": { "type": "dollars", "value": 1 },
+      "rationale": "Smoke test — verify live order path.",
+      "confidence": "high",
+      "linkedThesis": null
+    }
+  ],
+  "noActionsReason": null
+}

@@ -1,0 +1,32 @@
+# Build artifacts
+.build/
+infra/lambda.zip
+*.zip
+
+# Node
+node_modules/
+npm-debug.log*
+
+# Environment & secrets
+.env
+.env.local
+.env.*.local
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local memo snapshots (use infra/fetch-memo.py to regenerate)
+memo-local.json
+data-gatherers/memo.json
+
+# Test output
+data-gatherers/response.json
+*.log

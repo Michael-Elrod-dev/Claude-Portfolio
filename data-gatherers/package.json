@@ -1,0 +1,29 @@
+{
+  "name": "data-gatherers",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "alpaca": "node run-alpaca.js",
+    "earnings": "node run-earnings.js",
+    "congressional": "node run-congressional.js",
+    "memo": "node run-memo.js",
+    "briefing": "node run-briefing.js",
+    "analyst": "node run-analyst.js",
+    "memo-updater": "node run-memo-updater.js",
+    "executor": "node run-executor.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@alpacahq/alpaca-trade-api": "^3.1.3",
+    "@anthropic-ai/sdk": "^0.93.0",
+    "@aws-sdk/client-s3": "^3.1042.0",
+    "@aws-sdk/client-secrets-manager": "^3.1042.0",
+    "@aws-sdk/client-ses": "^3.1042.0",
+    "@aws-sdk/client-ssm": "^3.1042.0",
+    "dotenv": "^17.4.2"
+  }
+}

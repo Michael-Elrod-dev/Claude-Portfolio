@@ -1,0 +1,55 @@
+{
+  "asOf": "2026-05-04T22:00:00Z",
+  "summary": "Rotating defensive given softening macro; trimming VST before earnings, taking a small dollar-sized position in MSFT, queueing a low-conviction ORCL buy for review.",
+  "recommendations": [
+    {
+      "action": "sell",
+      "ticker": "VST",
+      "amount": { "type": "percent", "value": 100 },
+      "rationale": "Earnings 2026-05-07 before open; VST sits at -1% unrealized — close to flat, no reason to hold through binary event.",
+      "confidence": "high",
+      "linkedThesis": null
+    },
+    {
+      "action": "sell",
+      "ticker": "AB",
+      "amount": { "type": "percent", "value": 25 },
+      "rationale": "Trimming AB after +5% gain to recycle into MSFT thesis; partial profit-take, not closing the thesis.",
+      "confidence": "high",
+      "linkedThesis": "AB"
+    },
+    {
+      "action": "buy",
+      "ticker": "MSFT",
+      "amount": { "type": "dollars", "value": 5000 },
+      "rationale": "Watchlist entry; cloud capex commentary from this week's hyperscaler reads supports thesis. Sized small to test conviction.",
+      "confidence": "high",
+      "linkedThesis": null
+    },
+    {
+      "action": "buy",
+      "ticker": "ORCL",
+      "amount": { "type": "percent", "value": 3 },
+      "rationale": "Congressional disclosure (Moskowitz) plus oracle cloud growth signal. Lower conviction — wanted to flag for review.",
+      "confidence": "low",
+      "linkedThesis": null
+    },
+    {
+      "action": "sell",
+      "ticker": "ZZZZ",
+      "amount": { "type": "percent", "value": 50 },
+      "rationale": "(Edge case fixture: ticker we do not hold — should be skipped, not failed.)",
+      "confidence": "high",
+      "linkedThesis": null
+    },
+    {
+      "action": "buy",
+      "ticker": "TINY",
+      "amount": { "type": "dollars", "value": 0.5 },
+      "rationale": "(Edge case fixture: notional below Alpaca minimum — should be skipped.)",
+      "confidence": "high",
+      "linkedThesis": null
+    }
+  ],
+  "noActionsReason": null
+}
