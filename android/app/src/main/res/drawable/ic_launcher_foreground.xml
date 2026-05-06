@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Bar-chart silhouette in the Pos green token. Echoes the Portfolio tab
+     icon. Bars are sized inside the 72dp inner safe area centred at 54,54.
+     Replace with a real designer-drawn icon later. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:pathData="M30,72 L30,54 L40,54 L40,72 Z"
+        android:fillColor="#5FB98A" />
+    <path
+        android:pathData="M48,72 L48,42 L58,42 L58,72 Z"
+        android:fillColor="#5FB98A" />
+    <path
+        android:pathData="M66,72 L66,30 L76,30 L76,72 Z"
+        android:fillColor="#5FB98A" />
+</vector>

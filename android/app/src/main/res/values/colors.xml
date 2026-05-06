@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Mirrors the `Bg` token in ui/theme/Color.kt. Used by themes.xml so
+         the system status/navigation bars match the Compose background.
+         Keep in sync with Color.Bg if either changes. -->
+    <color name="bg">#FF0D0D0E</color>
+</resources>

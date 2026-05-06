@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "721874756091",
+    "project_id": "claude-portfolio-5ff5e",
+    "storage_bucket": "claude-portfolio-5ff5e.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:721874756091:android:55c85b5439465d84e52b5e",
+        "android_client_info": {
+          "package_name": "com.claudeportfolio.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDaJqubis3Vrcx0ebs1RPvoASBHLCfpEww"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

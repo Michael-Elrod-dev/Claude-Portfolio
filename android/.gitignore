@@ -1,0 +1,30 @@
+# Android-specific ignores layered on top of the root .gitignore. Most
+# patterns here are also in the root file; duplicating them keeps this
+# folder usable in isolation if you ever extract it.
+
+# Gradle / build
+*.iml
+.gradle/
+.kotlin/
+local.properties
+build/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Gradle wrapper jar — Studio regenerates on first sync.
+gradle/wrapper/gradle-wrapper.jar
+
+# Android Studio
+.idea/
+*.iws
+*.ipr
+
+# Keystore files (release signing). We don't ship a release build today,
+# but if you ever generate one, the keystore goes in the repo root and
+# stays out of git via these patterns.
+*.jks
+*.keystore
+
+# Profiling output
+*.hprof

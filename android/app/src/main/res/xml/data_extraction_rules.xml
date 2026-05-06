@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android 12+ requires this. We don't store anything sensitive locally
+     in Phase 3; once we have a bearer token in DataStore (Phase 5), we'll
+     exclude that file from cloud backups. -->
+<data-extraction-rules>
+    <cloud-backup />
+    <device-transfer />
+</data-extraction-rules>

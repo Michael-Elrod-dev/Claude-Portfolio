@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Compose owns all theming at runtime. The XML theme just gives the
+         system enough info to render the splash and the activity background
+         without flashing the wrong color. We pin the background to the
+         design's `Bg` token (#0D0D0E) so launch is seamless. -->
+    <style name="Theme.ClaudePortfolio" parent="android:Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@color/bg</item>
+        <item name="android:navigationBarColor">@color/bg</item>
+        <item name="android:windowBackground">@color/bg</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+    </style>
+</resources>
