@@ -79,9 +79,11 @@ aws iam attach-role-policy \
 # ── 2. Custom IAM policy (S3 + Secrets Manager + SSM) ─────────────────────
 echo "▸ Creating IAM policy ${POLICY_NAME}..."
 
-# Substitute the actual account ID into the policy document.
-POLICY_DOC=$(sed "s/369382711663/${ACCOUNT_ID}/g; s/claude-portfolio-369382711663/claude-portfolio-${ACCOUNT_ID}/g" \
-  "$(dirname "$0")/policy.json")
+# Substitute the placeholder account ID into the policy document. The
+# repo-tracked policy.json uses 000000000000 as a placeholder so the
+# real account ID isn't published in a public repo; we swap it in here
+# at apply time.
+POLICY_DOC=$(sed "s/000000000000/${ACCOUNT_ID}/g" "$(dirname "$0")/policy.json")
 
 POLICY_ARN=$(aws iam create-policy \
   --policy-name "${POLICY_NAME}" \

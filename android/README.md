@@ -43,19 +43,33 @@ it, the conditional `apply(plugin = "com.google.gms.google-services")` in
 [`app/build.gradle.kts`](app/build.gradle.kts) is skipped and the app
 builds, but FCM push never initializes.
 
-To enable push:
+`android/app/google-services.json` is **gitignored** so each developer
+provides their own. To enable push:
 
-1. Open https://console.firebase.google.com → your project
+1. Open https://console.firebase.google.com → your project (or create one)
 2. **Add app → Android** with package name `com.claudeportfolio.app`
-3. Download `google-services.json` → drop into `android/app/`
-4. Re-sync the project
+3. **Download `google-services.json`** → save it as
+   `android/app/google-services.json`
+4. **Lock the API key down** (defense-in-depth — recommended on a public
+   repo since the key technically lives inside the APK):
+   - https://console.cloud.google.com/apis/credentials → click your Android key
+   - **Application restrictions → Android apps**
+   - Package name `com.claudeportfolio.app`
+   - SHA-1 fingerprint: get yours with PowerShell
+     ```powershell
+     & "C:\Program Files\Java\jdk-22\bin\keytool.exe" -list -v `
+       -alias androiddebugkey `
+       -keystore "$env:USERPROFILE\.android\debug.keystore" `
+       -storepass android -keypass android
+     ```
+     (paste the `SHA1:` line into the field)
+5. Re-sync the project in Android Studio
 
-`google-services.json` **is intentionally committed** (Firebase client
-config is not secret — security comes from Firebase Security Rules, not
-from hiding the file). The Firebase **service-account key** (a separate
-JSON you generate in Project Settings → Service Accounts) is the actual
-secret and lives only in AWS Secrets Manager — never in the repo. The
-root `.gitignore` blocks `*-firebase-adminsdk-*.json` defensively.
+The Firebase **service-account key** (a separate JSON you generate in
+Project Settings → Service Accounts) is the actual sensitive credential
+and lives only in AWS Secrets Manager — never in the repo. The root
+`.gitignore` blocks `*-firebase-adminsdk-*.json` defensively in case
+one ever lands in the working tree.
 
 ---
 

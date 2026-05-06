@@ -9,7 +9,7 @@
         "s3:PutObject",
         "s3:HeadObject"
       ],
-      "Resource": "arn:aws:s3:::claude-portfolio-369382711663/*"
+      "Resource": "arn:aws:s3:::claude-portfolio-000000000000/*"
     },
     {
       "Sid": "S3ListBucket",
@@ -17,7 +17,7 @@
       "Action": [
         "s3:ListBucket"
       ],
-      "Resource": "arn:aws:s3:::claude-portfolio-369382711663"
+      "Resource": "arn:aws:s3:::claude-portfolio-000000000000"
     },
     {
       "Sid": "SecretsManager",
@@ -25,7 +25,7 @@
       "Action": [
         "secretsmanager:GetSecretValue"
       ],
-      "Resource": "arn:aws:secretsmanager:us-east-1:369382711663:secret:claude-portfolio/*"
+      "Resource": "arn:aws:secretsmanager:us-east-1:000000000000:secret:claude-portfolio/*"
     },
     {
       "Sid": "SSMFlags",
@@ -34,7 +34,7 @@
         "ssm:GetParameter",
         "ssm:PutParameter"
       ],
-      "Resource": "arn:aws:ssm:us-east-1:369382711663:parameter/claude-portfolio-*"
+      "Resource": "arn:aws:ssm:us-east-1:000000000000:parameter/claude-portfolio-*"
     },
     {
       "Sid": "SESNotifications",
@@ -58,9 +58,9 @@
         "dynamodb:BatchWriteItem"
       ],
       "Resource": [
-        "arn:aws:dynamodb:us-east-1:369382711663:table/claude-portfolio-runs",
-        "arn:aws:dynamodb:us-east-1:369382711663:table/claude-portfolio-activity",
-        "arn:aws:dynamodb:us-east-1:369382711663:table/claude-portfolio-devices"
+        "arn:aws:dynamodb:us-east-1:000000000000:table/claude-portfolio-runs",
+        "arn:aws:dynamodb:us-east-1:000000000000:table/claude-portfolio-activity",
+        "arn:aws:dynamodb:us-east-1:000000000000:table/claude-portfolio-devices"
       ]
     }
   ]

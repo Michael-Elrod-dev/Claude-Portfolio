@@ -555,7 +555,7 @@ write(), describe() }` contract as `LocalFileBackend`, so swapping is
 seamless.
 
 **Setup (already done):**
-- Bucket: `claude-portfolio-369382711663` in `us-east-1`
+- Bucket: `claude-portfolio-${AWS_ACCOUNT_ID}` in `us-east-1`
 - Public access fully blocked (all four ACL/policy flags set)
 - No versioning yet (intentional — adds complexity without immediate
   value; revisit if we want memo history)

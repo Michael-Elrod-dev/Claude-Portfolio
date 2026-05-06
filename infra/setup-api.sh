@@ -84,7 +84,7 @@ aws iam attach-role-policy \
 # ── 3. Custom IAM policy ─────────────────────────────────────────────────
 echo "▸ Publishing IAM policy ${POLICY_NAME}..."
 
-POLICY_DOC=$(sed "s/369382711663/${ACCOUNT_ID}/g" "${SCRIPT_DIR}/api-policy.json")
+POLICY_DOC=$(sed "s/000000000000/${ACCOUNT_ID}/g" "${SCRIPT_DIR}/api-policy.json")
 
 POLICY_ARN=$(aws iam create-policy \
   --policy-name "${POLICY_NAME}" \

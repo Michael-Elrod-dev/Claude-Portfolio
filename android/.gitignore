@@ -28,3 +28,12 @@ gradle/wrapper/gradle-wrapper.jar
 
 # Profiling output
 *.hprof
+
+# Firebase Android client config. The file itself isn't a secret per
+# Firebase's docs (it's designed to ship inside client APKs), but on a
+# public repo it triggers GitHub's secret scanner and lets bots probe
+# the project. Each developer downloads their own copy from
+# Firebase Console → Project Settings → Your apps → Android app
+# and drops it into android/app/. See android/README.md for the full
+# setup walkthrough.
+app/google-services.json

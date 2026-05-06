@@ -13,12 +13,29 @@ import json
 import sys
 from pathlib import Path
 
+import os
+
 try:
     import boto3
 except ImportError:
     sys.exit("boto3 not found. Run: pip install boto3")
 
-BUCKET = "claude-portfolio-369382711663"
+# Read the bucket from the environment (matches what the lambda uses) or
+# resolve it from the live AWS account ID. Either keeps the real account
+# number out of the repo.
+def _resolve_bucket():
+    explicit = os.environ.get("MEMO_S3_BUCKET")
+    if explicit:
+        return explicit
+    try:
+        sts = boto3.client("sts")
+        account_id = sts.get_caller_identity()["Account"]
+        return f"claude-portfolio-{account_id}"
+    except Exception as e:
+        sys.exit(f"Could not resolve bucket name: {e}\n"
+                 f"Set MEMO_S3_BUCKET explicitly or run `aws configure`.")
+
+BUCKET = _resolve_bucket()
 KEY = "memo.json"
 DEFAULT_OUT = Path(__file__).parent.parent / "memo-local.json"
 
