@@ -1,32 +1,72 @@
-# Build artifacts
+# ── Secrets ─────────────────────────────────────────────────────────────
+# These contain private keys / API credentials and must never be committed.
+.env
+.env.*
+.env.local
+*.pem
+*.key
+
+# Firebase service-account keys (private key for FCM publishing).
+# Pattern matches whatever Firebase names the file when you "Generate new
+# private key" in the console, regardless of project ID.
+*-firebase-adminsdk-*.json
+firebase-adminsdk*.json
+service-account*.json
+
+# AWS / generic credentials accidentally written to the tree.
+credentials.json
+aws-credentials*.json
+
+# ── Build artifacts ─────────────────────────────────────────────────────
+# Lambda packaging output.
 .build/
-infra/lambda.zip
 *.zip
 
-# Node
+# Node.
 node_modules/
 npm-debug.log*
+yarn-error.log*
 
-# Environment & secrets
-.env
-.env.local
-.env.*.local
+# ── Android / Gradle ────────────────────────────────────────────────────
+# Build outputs at every level (root, app module, future modules).
+**/build/
+**/.gradle/
+**/.kotlin/
 
-# IDE
+# Gradle wrapper jar — Studio regenerates on first sync; not committed
+# so the repo stays platform-agnostic. (gradle-wrapper.properties IS
+# committed so the wrapper version is pinned.)
+gradle/wrapper/gradle-wrapper.jar
+**/gradle/wrapper/gradle-wrapper.jar
+
+# Local Android SDK paths and per-machine config.
+local.properties
+
+# Captured device profiling output.
+**/captures/
+
+# ── IDE / editor ────────────────────────────────────────────────────────
 .idea/
 .vscode/
+*.iml
 *.swp
 *.swo
 *~
 
-# OS
+# ── OS detritus ─────────────────────────────────────────────────────────
 .DS_Store
 Thumbs.db
+desktop.ini
 
-# Local memo snapshots (use infra/fetch-memo.py to regenerate)
+# ── Local-only data files ───────────────────────────────────────────────
+# The memo lives in S3 in production; locally it's a scratchpad.
 memo-local.json
 data-gatherers/memo.json
 
-# Test output
+# Ad-hoc test output / debug dumps.
 data-gatherers/response.json
 *.log
+
+# ── Claude Code internals ──────────────────────────────────────────────
+# Worktrees, scratch sessions, etc. Internal to the agent — never commit.
+.claude/

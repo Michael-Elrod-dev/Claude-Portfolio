@@ -1,36 +1,58 @@
 # Claude-Portfolio
 
-A weekly automated trading system that runs on AWS Lambda, gathers market data
-from several sources, asks Claude (via the Anthropic API) for trade
-recommendations, and executes them on an Alpaca paper trading account.
+A bi-weekly automated trading system that runs on AWS Lambda, gathers
+market data from several sources, asks Claude (via the Anthropic API) for
+trade recommendations, executes them on an Alpaca paper trading account,
+and reports results to an Android companion app via FCM push notification.
 
 This is a **paper-trading research project**, run in parallel to the separate
 Pelosi-Mirror system that handles real money. The core design principle is
 **"humans control the inputs, Claude controls the decisions"** — we do not
 shape what Claude buys, only what data it sees.
 
+The system has three deployable units:
+
+| Unit | What it is | Where it runs |
+|---|---|---|
+| **Pipeline** (`data-gatherers/`) | The trading bot itself: briefing → analysis → memo → executor | AWS Lambda `claude-portfolio-trader`, fired by EventBridge Mon + Thu @ 13:00 UTC |
+| **HTTP API** (`api/`) | Read-only views over Alpaca + DynamoDB + S3 + SSM, plus a few writes | AWS Lambda `claude-portfolio-api` behind API Gateway HTTP API |
+| **Android app** (`android/`) | Personal-use companion: portfolio, last run, memo, history, settings, push | Side-loaded Kotlin/Compose app on the user's phone |
+
 ---
 
 ## Architecture
 
 ```
-EventBridge (Sun evening cron)
+EventBridge (Mon + Thu @ 13:00 UTC)
         │
         ▼
-   Data Gatherer ──► assembles structured JSON briefing
+   Pipeline Lambda  ──►  Briefing assembler
+        │                  Alpaca · earnings · congressional · memo (S3)
         │
         ▼
-   Analyst (Claude API + web search) ──► trade recommendations JSON
-        │                                + memo update
+   Analyst (Claude API + web search)  ──►  trade recommendations JSON
+        │                                  + memo update
         ▼
-   Executor ──► places orders on Alpaca
+   MemoUpdater (Claude, no tools)  ──►  new memo, written to S3
         │
         ▼
-   S3: persistent memo (Claude's running theses & watchlist)
+   Executor  ──►  Alpaca paper account
+                  (dry-run by default; live mode opt-in via SSM flag)
+        │
+        ▼
+   ──┬──  DynamoDB  claude-portfolio-runs       (run record, 30d TTL)
+     ├──  DynamoDB  claude-portfolio-activity   (event log, 30d TTL)
+     ├──  S3        memo.json                   (overwritten each run)
+     └──  FCM       run_complete · queued · briefing_error · run_failed
+                          │
+                          ▼
+                    Android app  ◄──  HTTP API Lambda
+                                       /portfolio · /memo · /runs · /flags · ...
 ```
 
-Components are split into separate Lambdas so there are natural
-checkpoints between gathering, analysis, and execution.
+Three components, three lambdas: pipeline, HTTP API, FCM publisher
+(embedded in the pipeline lambda). Each has natural checkpoints between
+phases.
 
 ### What is programmatic vs. what Claude does at runtime
 
@@ -55,7 +77,7 @@ tool, where its synthesis ability adds the most value.
 ## Project layout
 
 ```
-data-gatherers/
+data-gatherers/                     ← Pipeline lambda code
 ├── sources/
 │   ├── DataSource.js              ← abstract base class, fetch() contract
 │   ├── AlpacaSource.js            ← portfolio + recent orders
@@ -82,36 +104,196 @@ data-gatherers/
 ├── executor/
 │   ├── Executor.js                ← submits recommendations to Alpaca
 │   └── sizingResolver.js          ← amount → qty/notional (pure logic)
+├── lambda/
+│   ├── handler.js                 ← entry point — wraps the full pipeline in try/catch
+│   ├── secretsLoader.js           ← Secrets Manager + SSM active-flag reader
+│   ├── liveFlag.js                ← reads SSM /claude-portfolio-live (env fallback)
+│   ├── runArchiver.js             ← writes one row per run to claude-portfolio-runs
+│   ├── activityLogger.js          ← appends events to claude-portfolio-activity
+│   ├── fcmPublisher.js            ← lazy-loads firebase-admin, sends pushes
+│   └── emailer.js                 ← legacy SES notifier (currently disabled)
 ├── fixtures/
 │   └── test-recommendations.json  ← edge-case fixture for executor tests
-├── run-alpaca.js                  ← npm run alpaca
-├── run-earnings.js                ← npm run earnings
-├── run-congressional.js           ← npm run congressional
-├── run-memo.js                    ← npm run memo
-├── run-briefing.js                ← npm run briefing
-├── run-analyst.js                 ← npm run analyst
-├── run-memo-updater.js            ← npm run memo-updater (full pipeline)
-├── run-executor.js                ← npm run executor (dry-run by default)
-├── .env / .env.example
+├── run-*.js                       ← npm-script test harnesses
+├── .env / .env.example            ← gitignored — local secrets only
 └── package.json
+
+api/                                ← HTTP API lambda code
+├── handler.js                     ← regex router, bearer-token auth
+├── auth.js                        ← constant-time comparison vs Secrets Manager
+├── respond.js                     ← JSON response helpers
+├── routes/
+│   ├── portfolio.js               ← GET /portfolio (Alpaca + memo enrichment)
+│   ├── memo.js                    ← GET /memo
+│   ├── runs.js                    ← GET /runs/latest, /runs/{date}, /runs?limit=N
+│   ├── briefing.js                ← GET /briefing/latest
+│   ├── activity.js                ← GET /activity
+│   ├── flags.js                   ← GET/PUT /flags/active and /flags/live
+│   ├── devices.js                 ← POST /devices (FCM token registration)
+│   └── runForce.js                ← POST /run/force
+├── services/
+│   ├── alpaca.js                  ← Alpaca client + portfolio enrichment
+│   ├── ddb.js                     ← shared Dynamo doc client
+│   ├── ssm.js                     ← SSM read/write helpers
+│   ├── secrets.js                 ← API-keys secret reader
+│   └── s3memo.js                  ← S3 memo reader
+└── package.json
+
+android/                            ← Kotlin/Compose companion app
+├── build.gradle.kts                  root Gradle (Compose, Kotlin, Firebase plugins)
+├── app/
+│   ├── build.gradle.kts            ← app module deps + conditional google-services
+│   ├── google-services.json        ← Firebase Android config (committed; not secret)
+│   └── src/main/
+│       ├── AndroidManifest.xml
+│       ├── java/com/claudeportfolio/app/
+│       │   ├── MainActivity.kt              ← edge-to-edge, FCM token registration,
+│       │   │                                    notification permission, deep-link handler
+│       │   ├── PortfolioApp.kt              ← Application — registers notification channel
+│       │   ├── data/
+│       │   │   ├── api/
+│       │   │   │   ├── PortfolioApi.kt       ← suspend interface, MockApi + RetrofitApi
+│       │   │   │   ├── MockApi.kt            ← in-memory data for dev/first-launch
+│       │   │   │   ├── PortfolioService.kt   ← Retrofit + envelope types
+│       │   │   │   ├── ApiFactory.kt         ← per-(baseUrl, token) Retrofit builder
+│       │   │   │   └── RetrofitApi.kt
+│       │   │   ├── config/ConfigStore.kt    ← DataStore — base URL + bearer token
+│       │   │   └── model/Models.kt          ← @Serializable wire types
+│       │   ├── push/
+│       │   │   ├── PushService.kt            ← FirebaseMessagingService → notifications
+│       │   │   ├── NotificationChannels.kt   ← idempotent channel setup
+│       │   │   └── PushConstants.kt          ← channel id, intent extras
+│       │   └── ui/
+│       │       ├── RootScreen.kt             ← NavController + tab routing
+│       │       ├── LocalApi.kt               ← API + IsLive + RefreshTick CompositionLocals
+│       │       ├── UiState.kt                ← Loading/Ready/Error + rememberLoadable
+│       │       ├── theme/                    ← Color, Type, Theme
+│       │       ├── components/               ← AppBar, BottomNav, NavIcons, Skeleton
+│       │       ├── format/Format.kt          ← USD / pct / date formatters
+│       │       └── screens/                  ← 5 tabs + RunDetail
+│       └── res/                              ← icons, strings, themes, font_certs
+└── README.md                       ← Android-specific build instructions
+
+infra/                              ← AWS provisioning + deploy scripts
+├── setup.sh                       ← one-time: IAM, Lambda, EventBridge, Dynamo, SSM, S3
+├── setup-api.sh                   ← one-time: API IAM + Lambda + API Gateway + bearer secret
+├── deploy.sh                      ← packages and uploads pipeline lambda code
+├── deploy-api.sh                  ← packages and uploads API lambda code
+├── invoke-manual.sh               ← fire a forced pipeline run (--force)
+├── toggle.sh                      ← on/off/status — SSM active flag + EventBridge rules
+├── secrets-update.sh              ← interactive secret editor for claude-portfolio/api-keys
+├── fetch-memo.py                  ← grab the memo from S3 to look at locally
+├── zip-lambda.py                  ← cross-platform zip helper used by deploy scripts
+├── policy.json                    ← IAM policy for the pipeline lambda
+└── api-policy.json                ← IAM policy for the API lambda
+
+README.md                           ← (this file)
 ```
 
 Every data source extends `DataSource` and exposes a single `fetch()`
 method returning a structured JSON snapshot. The runners are thin test
-harnesses; the briefing assembler (not yet built) will instantiate all
-the sources and `Promise.all()` their fetches together.
+harnesses; `BriefingAssembler` orchestrates them in production.
 
 ---
 
 ## Setup
 
-1. `cd data-gatherers && npm install`
-2. Copy `.env.example` to `.env` and fill in:
-   - `ALPACA_KEY_ID` / `ALPACA_SECRET_KEY` — paper trading keys from
-     [app.alpaca.markets](https://app.alpaca.markets)
-   - `FINNHUB_API_KEY` — free tier key from [finnhub.io](https://finnhub.io)
-3. Test each source: `npm run alpaca`, `npm run earnings`,
-   `npm run congressional`
+The system has three deployable units — pipeline, API, Android. These
+instructions cover provisioning a fresh AWS account end-to-end. If you're
+just running the pipeline locally for development, only step 1 matters.
+
+### Prerequisites
+
+- AWS CLI (v2) configured with a profile that has IAM + Lambda +
+  EventBridge + Secrets Manager + SSM + DynamoDB + S3 + APIGatewayV2 perms
+- Python 3 (for the cross-platform zip helper used by `infra/deploy*.sh`)
+- Node 22 (matches the Lambda runtime)
+- Android Studio (any 2024.x stable — Iguana through Ladybug)
+- Alpaca **paper** account: get keys at
+  [app.alpaca.markets](https://app.alpaca.markets)
+- Finnhub free key: [finnhub.io](https://finnhub.io)
+- Anthropic API key: [console.anthropic.com](https://console.anthropic.com)
+
+### 1. Pipeline (data-gatherers)
+
+```bash
+cd data-gatherers
+npm install
+cp .env.example .env  # fill in ALPACA_*, FINNHUB_API_KEY, ANTHROPIC_API_KEY
+
+# sanity-check each source
+npm run alpaca
+npm run earnings
+npm run congressional
+```
+
+### 2. AWS pipeline infra
+
+From the repo root:
+
+```bash
+bash infra/setup.sh           # creates IAM role/policy, S3, Secrets Manager
+                              # placeholder, SSM flags, Dynamo tables (runs +
+                              # activity + devices), Lambda function (placeholder
+                              # code), EventBridge rules (DISABLED)
+
+bash infra/secrets-update.sh  # interactive — paste your Anthropic, Alpaca,
+                              # and Finnhub keys into Secrets Manager
+
+bash infra/deploy.sh          # uploads the real lambda code
+
+bash infra/toggle.sh on       # enables SSM active flag + EventBridge rules
+                              # (Mon + Thu @ 13:00 UTC)
+```
+
+### 3. HTTP API
+
+```bash
+bash infra/setup-api.sh       # creates API Lambda role/policy, Lambda
+                              # function, API Gateway HTTP API, generates
+                              # bearer token in Secrets Manager
+
+bash infra/deploy-api.sh      # uploads the API code
+
+# print the URL + bearer token (you'll paste both into the Android app):
+echo "API URL: $(aws lambda get-function-url-config \
+  --function-name claude-portfolio-api --query FunctionUrl --output text)"
+aws secretsmanager get-secret-value \
+  --secret-id claude-portfolio/api-bearer-token \
+  --query SecretString --output text
+```
+
+### 4. Firebase + FCM (manual web steps)
+
+1. https://console.firebase.google.com → create project (or reuse one)
+2. **Add app → Android**, package name `com.claudeportfolio.app`
+3. Download `google-services.json` → drop into `android/app/`
+4. **Project Settings → Service accounts → Generate new private key** →
+   save the JSON somewhere safe (don't commit it)
+5. Upload that key to Secrets Manager:
+   ```bash
+   aws secretsmanager create-secret \
+     --name claude-portfolio/fcm-sa \
+     --secret-string file:///path/to/your-key.json \
+     --region us-east-1
+   ```
+6. Redeploy: `bash infra/deploy.sh` (so `firebase-admin` is in the lambda zip)
+
+### 5. Android app
+
+1. Open `android/` in Android Studio → **Sync Now**
+2. **Run ▶** with your phone connected (USB debugging on)
+3. On first launch grant the **POST_NOTIFICATIONS** permission
+4. Open **Settings → Connection**, paste:
+   - Base URL: from step 3 output
+   - Bearer token: from step 3 output
+5. Tap **Connect** — status pill at the top flips to green "Live · paper acct"
+
+To verify the full loop end-to-end:
+
+```bash
+bash infra/invoke-manual.sh --force  # ~4 min later your phone gets a push
+```
 
 ---
 
@@ -545,22 +727,41 @@ before deployment.
 
 ## Build status
 
+### Pipeline
 - [x] AlpacaSource — portfolio, cash, recent orders
 - [x] EarningsSource — earnings calendar guardrail
 - [x] CongressionalSource — Capitol Trades scrape
-- [x] MemoSource — pluggable backend, local file shipped, S3 deferred
+- [x] MemoSource — pluggable backend (local file + S3)
 - [x] BriefingAssembler — orchestrates all sources into one JSON
 - [x] Analyst — Anthropic API call, web search, JSON parsing
 - [x] MemoUpdater — second Claude call, rewrites memo post-decision
-- [x] S3Backend for MemoSource — bucket created and round-trip verified
-- [x] Memo write-back — `run-memo-updater` writes new memo through the
-      same backend `MemoSource` reads
+- [x] S3Backend for MemoSource — round-trip verified
 - [x] Executor — places orders on Alpaca; dry-run default, idempotent
-      via deterministic client_order_id, confidence-gated auto-execution
-- [ ] Live execution test — one tiny real order to verify the path
-      end-to-end on the paper account
-- [ ] Queue-for-review surface — where `queued_for_review` results live
-      between weekly runs (S3 + email-driven approval, similar to the
-      Pelosi-Mirror approval-link pattern)
-- [ ] Lambda packaging + deployment
-- [ ] EventBridge cron + Secrets Manager (move keys out of `.env`)
+- [x] Lambda packaging + deployment (`infra/setup.sh` + `infra/deploy.sh`)
+- [x] EventBridge cron + Secrets Manager (no keys in env vars)
+- [x] SSM flags (`active`, `live`) + `toggle.sh` switch
+- [x] DynamoDB run archive + activity log (30-day TTL on both)
+- [x] Live execution enabled — Mon + Thu @ 13:00 UTC, real paper trades
+
+### HTTP API
+- [x] All 13 endpoints (portfolio, memo, runs/*, briefing/latest, activity, flags/*, devices, run/force)
+- [x] Bearer-token auth — token stored in Secrets Manager, constant-time compare
+- [x] API Gateway HTTP API + Lambda (`api/` package)
+- [x] Provisioned via `infra/setup-api.sh` + deployed via `infra/deploy-api.sh`
+
+### Android app
+- [x] Compose + Material 3, dark-only, custom AppBar + BottomNav
+- [x] All five screens — Portfolio, Last run, Memo, History, Settings — plus Run detail
+- [x] Mock data + real API toggle via DataStore-backed config
+- [x] Loading skeletons (shimmer-animated `Line2` rectangles)
+- [x] Pull-to-refresh on Portfolio, Last run, History
+- [x] FCM push notifications with deep-link handling
+- [x] Runtime POST_NOTIFICATIONS permission request
+- [x] Pixel-faithful match to the handoff's "Quiet" artboard
+
+### Out of scope (deliberate)
+- ~~Hilt DI~~ — `staticCompositionLocalOf` is enough at this app size
+- ~~Room offline cache~~ — refetch on tab change is fine for a weekly app
+- ~~WorkManager periodic refresh~~ — FCM push covers it
+- ~~Release APK signing~~ — debug build sideloads fine for personal use
+- ~~Pelosi-Mirror integration~~ — separate project, separate codebase
