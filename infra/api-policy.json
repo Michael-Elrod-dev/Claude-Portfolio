@@ -1,0 +1,45 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "S3ReadMemo",
+      "Effect": "Allow",
+      "Action": ["s3:GetObject"],
+      "Resource": "arn:aws:s3:::claude-portfolio-369382711663/*"
+    },
+    {
+      "Sid": "SecretsManagerRead",
+      "Effect": "Allow",
+      "Action": ["secretsmanager:GetSecretValue"],
+      "Resource": "arn:aws:secretsmanager:us-east-1:369382711663:secret:claude-portfolio/*"
+    },
+    {
+      "Sid": "SSMFlags",
+      "Effect": "Allow",
+      "Action": ["ssm:GetParameter", "ssm:PutParameter"],
+      "Resource": "arn:aws:ssm:us-east-1:369382711663:parameter/claude-portfolio-*"
+    },
+    {
+      "Sid": "DynamoReadWrite",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:Query",
+        "dynamodb:Scan"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:us-east-1:369382711663:table/claude-portfolio-runs",
+        "arn:aws:dynamodb:us-east-1:369382711663:table/claude-portfolio-activity",
+        "arn:aws:dynamodb:us-east-1:369382711663:table/claude-portfolio-devices"
+      ]
+    },
+    {
+      "Sid": "InvokePipelineLambda",
+      "Effect": "Allow",
+      "Action": ["lambda:InvokeFunction"],
+      "Resource": "arn:aws:lambda:us-east-1:369382711663:function:claude-portfolio-trader"
+    }
+  ]
+}
