@@ -28,7 +28,7 @@
       "Resource": "arn:aws:secretsmanager:us-east-1:369382711663:secret:claude-portfolio/*"
     },
     {
-      "Sid": "SSMActiveFlag",
+      "Sid": "SSMFlags",
       "Effect": "Allow",
       "Action": [
         "ssm:GetParameter",
@@ -44,6 +44,24 @@
         "ses:SendRawEmail"
       ],
       "Resource": "*"
+    },
+    {
+      "Sid": "DynamoRunsActivityDevices",
+      "Effect": "Allow",
+      "Action": [
+        "dynamodb:GetItem",
+        "dynamodb:PutItem",
+        "dynamodb:UpdateItem",
+        "dynamodb:DeleteItem",
+        "dynamodb:Query",
+        "dynamodb:Scan",
+        "dynamodb:BatchWriteItem"
+      ],
+      "Resource": [
+        "arn:aws:dynamodb:us-east-1:369382711663:table/claude-portfolio-runs",
+        "arn:aws:dynamodb:us-east-1:369382711663:table/claude-portfolio-activity",
+        "arn:aws:dynamodb:us-east-1:369382711663:table/claude-portfolio-devices"
+      ]
     }
   ]
 }

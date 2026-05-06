@@ -44,39 +44,36 @@ echo "▸ Building deployment zip..."
 rm -rf "${BUILD_DIR}"
 mkdir -p "${BUILD_DIR}"
 
-# Files/dirs to include — everything in data-gatherers except dev clutter.
-EXCLUDES=(
-  ".env"
-  ".env.*"
-  "*.test.js"
-  "run-*.js"       # CLI runners aren't needed on Lambda
-  ".eslintrc*"
-  "eslint.config*"
-)
+# We use a small Python helper instead of the `zip` CLI so the deploy works
+# on Windows / Git Bash environments that don't ship zip by default. The
+# helper applies the same exclude rules that the old shell `zip --exclude`
+# invocations used (dev clutter, ESLint packages, .git, etc.).
+PYTHON_BIN="$(command -v python3 || command -v python)"
+if [ -z "${PYTHON_BIN}" ]; then
+  echo "✗ Could not find python3/python on PATH — install Python or zip." >&2
+  exit 1
+fi
 
-EXCLUDE_ARGS=()
-for PAT in "${EXCLUDES[@]}"; do
-  EXCLUDE_ARGS+=("--exclude=${PAT}")
-done
-
-(cd "${SRC_DIR}" && zip -qr "${ZIP_PATH}" . \
-  "${EXCLUDE_ARGS[@]}" \
-  --exclude="*.git*" \
-  --exclude="node_modules/.bin/*" \
-  --exclude="node_modules/eslint*" \
-  --exclude="node_modules/@humanwhocodes*" \
-  --exclude="node_modules/@eslint*" \
-  --exclude="node_modules/@eslint-community*" \
-)
+"${PYTHON_BIN}" "${SCRIPT_DIR}/zip-lambda.py" "${SRC_DIR}" "${ZIP_PATH}"
 
 ZIP_SIZE=$(du -sh "${ZIP_PATH}" | cut -f1)
 echo "  Zip size: ${ZIP_SIZE} — ${ZIP_PATH}"
 
 # ── 3. Upload to Lambda ───────────────────────────────────────────────────
 echo "▸ Uploading to Lambda..."
+
+# When running under Git Bash / MSYS on Windows, the AWS CLI is a native
+# Windows binary that doesn't understand POSIX paths like /e/Code/...
+# Convert the zip path to a Windows path so the file: URI works.
+if command -v cygpath > /dev/null 2>&1; then
+  ZIP_PATH_FOR_AWS="$(cygpath -w "${ZIP_PATH}")"
+else
+  ZIP_PATH_FOR_AWS="${ZIP_PATH}"
+fi
+
 aws lambda update-function-code \
   --function-name "${FUNCTION_NAME}" \
-  --zip-file "fileb://${ZIP_PATH}" \
+  --zip-file "fileb://${ZIP_PATH_FOR_AWS}" \
   --region "${REGION}" \
   --query '{CodeSize: CodeSize, LastModified: LastModified}' \
   --output table
@@ -98,7 +95,7 @@ CURRENT_ENV=$(aws lambda get-function-configuration \
   --output json)
 
 # Merge EXECUTOR_LIVE into the existing env.
-NEW_ENV=$(echo "${CURRENT_ENV}" | python3 -c "
+NEW_ENV=$(echo "${CURRENT_ENV}" | "${PYTHON_BIN}" -c "
 import json, sys
 env = json.load(sys.stdin)
 env['EXECUTOR_LIVE'] = '${EXECUTOR_LIVE}'
