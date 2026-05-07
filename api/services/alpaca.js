@@ -36,6 +36,21 @@ function num(x) {
  * Fetch portfolio history for a period and return the {first, last, pl, plPct}
  * across that window. Returns null if the data isn't available.
  */
+/**
+ * Helper: return the windowed change result only if it represents a
+ * window strictly shorter than the all-time series. If the window's
+ * starting equity equals the all-time starting equity, the requested
+ * window doesn't extend past the account's funded history, and showing
+ * its (necessarily identical) value alongside totalPl is misleading.
+ */
+function _windowOrNull(window, allTime) {
+  if (!window || !allTime) return null;
+  // Compare on `first` — the equity value at the start of the window.
+  // Identical first values → the window degenerates to all-time.
+  if (window.first === allTime.first) return null;
+  return window;
+}
+
 async function periodChange(client, period) {
   try {
     const hist = await client.getPortfolioHistory({
@@ -159,10 +174,17 @@ async function buildPortfolio({ memo } = {}) {
       lastEquity,
       dayPl,
       dayPlPct,
-      monthPl: monthChange?.pl ?? null,
-      monthPlPct: monthChange?.plPct ?? null,
-      yearPl: yearChange?.pl ?? null,
-      yearPlPct: yearChange?.plPct ?? null,
+      // For each shorter window, only surface a value if it actually
+      // covers a different starting point than the all-time series. If
+      // the account is younger than the requested window, periodChange
+      // returns the same first equity as the all-time series (since
+      // the zero-pre-funding values get filtered out in either case),
+      // and we'd just be showing the same number 3 times. Null instead
+      // → UI renders "—" so it's obvious the window is too short.
+      monthPl: _windowOrNull(monthChange, allTime)?.pl ?? null,
+      monthPlPct: _windowOrNull(monthChange, allTime)?.plPct ?? null,
+      yearPl: _windowOrNull(yearChange, allTime)?.pl ?? null,
+      yearPlPct: _windowOrNull(yearChange, allTime)?.plPct ?? null,
       totalPl: allTime?.pl ?? null,
       totalPlPct: allTime?.plPct ?? null,
     },
