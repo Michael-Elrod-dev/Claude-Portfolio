@@ -38,7 +38,7 @@ import androidx.compose.ui.unit.sp
 import com.claudeportfolio.app.data.model.Recommendation
 import com.claudeportfolio.app.data.model.RunSummary
 import com.claudeportfolio.app.ui.LocalApi
-import com.claudeportfolio.app.ui.LocalEyebrow
+import com.claudeportfolio.app.ui.LocalEyebrows
 import com.claudeportfolio.app.ui.LocalRefreshTick
 import com.claudeportfolio.app.ui.UiState
 import com.claudeportfolio.app.ui.format.fmtDateEyebrow
@@ -61,7 +61,7 @@ import com.claudeportfolio.app.ui.theme.PortfolioColors
 fun LastRunScreen() {
     val api = LocalApi.current
     val tick = LocalRefreshTick.current
-    val eyebrow = LocalEyebrow.current
+    val eyebrows = LocalEyebrows.current
     var refreshKey by remember { mutableIntStateOf(0) }
     var isRefreshing by remember { mutableStateOf(false) }
     val state = rememberLoadable(tick, refreshKey) { api.getRunsLatest() }
@@ -69,7 +69,7 @@ fun LastRunScreen() {
         if (state !is UiState.Loading) isRefreshing = false
         if (state is UiState.Ready) {
             val run = state.data
-            eyebrow.value = if (run == null) "—"
+            eyebrows["LastRun"] = if (run == null) "—"
                 else "${fmtDateEyebrow(run.runDate)} · ${if (run.dryRun) "DRY-RUN" else "LIVE"}"
         }
     }

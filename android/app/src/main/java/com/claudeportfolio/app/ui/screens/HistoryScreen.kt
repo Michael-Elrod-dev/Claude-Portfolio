@@ -32,7 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.claudeportfolio.app.data.model.RunListItem
 import com.claudeportfolio.app.ui.LocalApi
-import com.claudeportfolio.app.ui.LocalEyebrow
+import com.claudeportfolio.app.ui.LocalEyebrows
 import com.claudeportfolio.app.ui.LocalRefreshTick
 import com.claudeportfolio.app.ui.UiState
 import com.claudeportfolio.app.ui.format.fmtDateLong
@@ -52,7 +52,7 @@ import com.claudeportfolio.app.ui.theme.PortfolioColors
 fun HistoryScreen(onRunClick: (runDate: String) -> Unit) {
     val api = LocalApi.current
     val tick = LocalRefreshTick.current
-    val eyebrow = LocalEyebrow.current
+    val eyebrows = LocalEyebrows.current
     var refreshKey by remember { mutableIntStateOf(0) }
     var isRefreshing by remember { mutableStateOf(false) }
     val state = rememberLoadable(tick, refreshKey) { api.getRunsList(limit = 20) }
@@ -60,7 +60,7 @@ fun HistoryScreen(onRunClick: (runDate: String) -> Unit) {
         if (state !is UiState.Loading) isRefreshing = false
         if (state is UiState.Ready) {
             val n = state.data.size
-            eyebrow.value = if (n == 0) "NO RUNS YET" else "$n WEEKLY RUN${if (n == 1) "" else "S"}"
+            eyebrows["History"] = if (n == 0) "NO RUNS YET" else "$n WEEKLY RUN${if (n == 1) "" else "S"}"
         }
     }
     PullToRefreshBox(

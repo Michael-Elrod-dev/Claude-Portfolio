@@ -42,7 +42,7 @@ import com.claudeportfolio.app.data.model.ClosedThesis
 import com.claudeportfolio.app.data.model.Memo
 import com.claudeportfolio.app.data.model.OpenThesis
 import com.claudeportfolio.app.ui.LocalApi
-import com.claudeportfolio.app.ui.LocalEyebrow
+import com.claudeportfolio.app.ui.LocalEyebrows
 import com.claudeportfolio.app.ui.LocalRefreshTick
 import com.claudeportfolio.app.ui.UiState
 import com.claudeportfolio.app.ui.format.fmtDateEyebrow
@@ -68,7 +68,7 @@ private enum class MemoSection(val label: String) {
 fun MemoScreen() {
     val api = LocalApi.current
     val tick = LocalRefreshTick.current
-    val eyebrow = LocalEyebrow.current
+    val eyebrows = LocalEyebrows.current
     var refreshKey by remember { mutableIntStateOf(0) }
     var isRefreshing by remember { mutableStateOf(false) }
     val state = rememberLoadable(tick, refreshKey) { api.getMemo() }
@@ -76,7 +76,7 @@ fun MemoScreen() {
         if (state !is UiState.Loading) isRefreshing = false
         if (state is UiState.Ready) {
             val updated = state.data.lastUpdated
-            eyebrow.value = if (updated.isNullOrBlank()) "MEMO" else "UPDATED ${fmtDateEyebrow(updated)}"
+            eyebrows["Memo"] = if (updated.isNullOrBlank()) "MEMO" else "UPDATED ${fmtDateEyebrow(updated)}"
         }
     }
     PullToRefreshBox(

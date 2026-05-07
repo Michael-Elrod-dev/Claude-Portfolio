@@ -48,7 +48,7 @@ import com.claudeportfolio.app.data.model.ActivityEvent
 import com.claudeportfolio.app.data.model.BriefingPayload
 import com.claudeportfolio.app.ui.LocalApi
 import com.claudeportfolio.app.ui.LocalConfigStore
-import com.claudeportfolio.app.ui.LocalEyebrow
+import com.claudeportfolio.app.ui.LocalEyebrows
 import com.claudeportfolio.app.ui.LocalIsLive
 import com.claudeportfolio.app.ui.LocalRefreshTick
 import com.claudeportfolio.app.ui.format.fmtAgo
@@ -92,12 +92,12 @@ fun SettingsScreen() {
 
     val scope = rememberCoroutineScope()
     val tick = LocalRefreshTick.current
-    val eyebrow = LocalEyebrow.current
+    val eyebrows = LocalEyebrows.current
     var refreshKey by remember { mutableIntStateOf(0) }
     var isRefreshing by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        eyebrow.value = "BOT · PAPER ACCOUNT"
+        eyebrows["Settings"] = "BOT · PAPER ACCOUNT"
     }
     LaunchedEffect(tick, refreshKey) {
         // API calls may throw NotConnectedException when the user hasn't

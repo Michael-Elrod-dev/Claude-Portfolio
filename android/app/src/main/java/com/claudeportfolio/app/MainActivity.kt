@@ -33,7 +33,7 @@ import com.claudeportfolio.app.data.config.ConfigStore
 import com.claudeportfolio.app.push.PushConstants
 import com.claudeportfolio.app.ui.LocalApi
 import com.claudeportfolio.app.ui.LocalConfigStore
-import com.claudeportfolio.app.ui.LocalEyebrow
+import com.claudeportfolio.app.ui.LocalEyebrows
 import com.claudeportfolio.app.ui.LocalIsLive
 import com.claudeportfolio.app.ui.LocalRefreshTick
 import com.claudeportfolio.app.ui.RootScreen
@@ -94,7 +94,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val config by configStore.flow.collectAsState(initial = ApiConfig(null, null))
-            val eyebrow = remember { mutableStateOf("") }
+            val eyebrows = remember { androidx.compose.runtime.mutableStateMapOf<String, String>() }
 
             val api: PortfolioApi = remember(config.baseUrl, config.bearerToken) {
                 if (config.isConfigured) {
@@ -120,7 +120,7 @@ class MainActivity : ComponentActivity() {
                 LocalIsLive provides config.isConfigured,
                 LocalConfigStore provides configStore,
                 LocalRefreshTick provides refreshTick,
-                LocalEyebrow provides eyebrow,
+                LocalEyebrows provides eyebrows,
             ) {
                 ClaudePortfolioTheme {
                     Surface(

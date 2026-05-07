@@ -1,7 +1,7 @@
 package com.claudeportfolio.app.ui
 
-import androidx.compose.runtime.MutableState
-import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshots.SnapshotStateMap
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.claudeportfolio.app.data.api.PortfolioApi
 import com.claudeportfolio.app.data.config.ConfigStore
@@ -47,11 +47,16 @@ val LocalConfigStore = staticCompositionLocalOf<ConfigStore> {
 val LocalRefreshTick = staticCompositionLocalOf { 0 }
 
 /**
- * Shared mutable string the AppBar reads for its eyebrow line. Each
- * screen updates this from a [androidx.compose.runtime.LaunchedEffect]
- * keyed on its loaded data, so the eyebrow always reflects what's
- * actually on screen instead of a hard-coded handoff string.
+ * Per-tab eyebrow cache. Each screen writes its eyebrow text into its
+ * own slot (`eyebrows["Portfolio"] = ...`); the AppBar reads whichever
+ * slot matches the currently-visible tab. Using a map (instead of a
+ * single MutableState<String>) means swiping the HorizontalPager back
+ * to a previously-loaded tab still shows the right eyebrow without
+ * triggering a re-fetch.
+ *
+ * Keys are the [com.claudeportfolio.app.ui.components.Tab.name] values
+ * plus a special "run_detail" key for the pushed RunDetail route.
  */
-val LocalEyebrow = staticCompositionLocalOf<MutableState<String>> {
-    mutableStateOf("")
+val LocalEyebrows = staticCompositionLocalOf<SnapshotStateMap<String, String>> {
+    mutableStateMapOf()
 }

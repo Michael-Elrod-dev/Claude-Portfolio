@@ -36,7 +36,7 @@ import androidx.compose.ui.unit.sp
 import com.claudeportfolio.app.data.model.Portfolio
 import com.claudeportfolio.app.data.model.Position
 import com.claudeportfolio.app.ui.LocalApi
-import com.claudeportfolio.app.ui.LocalEyebrow
+import com.claudeportfolio.app.ui.LocalEyebrows
 import com.claudeportfolio.app.ui.LocalRefreshTick
 import com.claudeportfolio.app.ui.UiState
 import com.claudeportfolio.app.ui.format.fmtDayDateEyebrow
@@ -58,7 +58,7 @@ import com.claudeportfolio.app.ui.theme.PortfolioColors
 fun PortfolioScreen() {
     val api = LocalApi.current
     val tick = LocalRefreshTick.current
-    val eyebrow = LocalEyebrow.current
+    val eyebrows = LocalEyebrows.current
     var refreshKey by remember { mutableIntStateOf(0) }
     var isRefreshing by remember { mutableStateOf(false) }
     val state = rememberLoadable(tick, refreshKey) { api.getPortfolio() }
@@ -69,7 +69,7 @@ fun PortfolioScreen() {
     LaunchedEffect(state) {
         if (state !is UiState.Loading) isRefreshing = false
         if (state is UiState.Ready) {
-            eyebrow.value = fmtDayDateEyebrow(state.data.asOf)
+            eyebrows["Portfolio"] = fmtDayDateEyebrow(state.data.asOf)
         }
     }
 

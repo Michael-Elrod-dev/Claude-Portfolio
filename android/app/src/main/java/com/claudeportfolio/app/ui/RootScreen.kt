@@ -4,10 +4,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -25,67 +27,60 @@ import com.claudeportfolio.app.ui.screens.PortfolioScreen
 import com.claudeportfolio.app.ui.screens.RunDetailScreen
 import com.claudeportfolio.app.ui.screens.SettingsScreen
 import com.claudeportfolio.app.ui.theme.PortfolioColors
+import kotlinx.coroutines.launch
+
+private const val TABS_ROUTE = "tabs"
 
 /**
  * Top-level scaffold:
- *   - PortfolioAppBar (title/eyebrow chosen by the active route)
- *   - NavHost in the middle
- *   - PortfolioBottomNav (selection chosen by the active route)
+ *   - PortfolioAppBar (eyebrow + title + status pill)
+ *   - NavHost with two destinations:
+ *       1. "tabs" — a HorizontalPager over the 5 tab screens
+ *       2. "run_detail/{date}" — pushed from the History tab
+ *   - PortfolioBottomNav (active tab derived from the pager, or History
+ *     when on RunDetail)
  *
- * Custom Column instead of Material `Scaffold` — the handoff explicitly
- * does NOT want Material's TopAppBar / NavigationBar chrome.
- *
- * Run detail is a nested route under History; the bottom nav still
- * highlights History while it's open, and the back gesture pops to it.
+ * Tab navigation works two ways: tap a bottom-nav icon (animates the
+ * pager to that page) or swipe horizontally between screens. Both
+ * inputs share the same pagerState so they stay in sync.
  */
 @Composable
-fun RootScreen(initialTab: com.claudeportfolio.app.ui.components.Tab? = null) {
+fun RootScreen(initialTab: Tab? = null) {
     val navController = rememberNavController()
+    val pagerState = rememberPagerState(pageCount = { Tab.entries.size })
+    val coroutineScope = rememberCoroutineScope()
 
-    // Honor a deep-link request from a notification tap. Runs once per
-    // distinct initialTab value, so onNewIntent updates re-trigger it.
+    // Notification-tap deep link: animate to the requested tab. If we're
+    // currently on RunDetail, pop back to the pager first.
     LaunchedEffect(initialTab) {
         if (initialTab != null) {
-            navController.navigate(initialTab.route) {
-                popUpTo(navController.graph.startDestinationId) { saveState = true }
-                launchSingleTop = true
-                restoreState = true
+            val backstackTop = navController.currentBackStackEntry?.destination?.route
+            if (backstackTop?.startsWith(RunDetailRoute.PREFIX) == true) {
+                navController.popBackStack()
             }
+            pagerState.animateScrollToPage(initialTab.ordinal)
         }
     }
 
     val backstackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backstackEntry?.destination?.route
     val currentArgs = backstackEntry?.arguments
-
-    // Map current route → which bottom-nav tab should be highlighted.
-    val activeTab = remember(currentRoute) {
-        when {
-            currentRoute == null -> Tab.Portfolio
-            currentRoute.startsWith(RunDetailRoute.PREFIX) -> Tab.History
-            else -> Tab.entries.firstOrNull { it.route == currentRoute } ?: Tab.Portfolio
-        }
-    }
-
-    val barTitle = when {
-        currentRoute?.startsWith(RunDetailRoute.PREFIX) == true -> "Run detail"
-        else -> activeTab.label
-    }
-
-    // Eyebrow text comes from the active screen — each one updates
-    // LocalEyebrow.value from a LaunchedEffect once its data loads.
-    // RunDetail derives its eyebrow purely from the route arg so it can
-    // render immediately without waiting for the API.
-    val eyebrowState = LocalEyebrow.current
     val isRunDetail = currentRoute?.startsWith(RunDetailRoute.PREFIX) == true
+
+    val activeTab = if (isRunDetail) Tab.History else Tab.entries[pagerState.currentPage]
+    val barTitle = if (isRunDetail) "Run detail" else activeTab.label
+
+    val eyebrows = LocalEyebrows.current
+    // RunDetail's eyebrow is derived synchronously from the route arg —
+    // no API call needed, so push it into the cache directly.
     val runDateArg = currentArgs?.getString("runDate")
     LaunchedEffect(currentRoute, runDateArg) {
         if (isRunDetail && !runDateArg.isNullOrBlank()) {
-            eyebrowState.value = runDateArg.uppercase().replace("-", " · ")
+            eyebrows["run_detail"] = runDateArg.uppercase().replace("-", " · ")
         }
-        // For tab screens, the screen itself updates the eyebrow once its
-        // data loads — leave alone here.
     }
+    val activeEyebrowKey = if (isRunDetail) "run_detail" else activeTab.name
+    val activeEyebrow = eyebrows[activeEyebrowKey] ?: ""
     val isLive = LocalIsLive.current
 
     Column(
@@ -94,7 +89,7 @@ fun RootScreen(initialTab: com.claudeportfolio.app.ui.components.Tab? = null) {
             .background(PortfolioColors.Bg),
     ) {
         PortfolioAppBar(
-            eyebrow = eyebrowState.value,
+            eyebrow = activeEyebrow,
             title = barTitle,
             statusLabel = if (isLive) "Live · paper acct" else "Not connected",
             statusOk = isLive,
@@ -107,17 +102,24 @@ fun RootScreen(initialTab: com.claudeportfolio.app.ui.components.Tab? = null) {
         ) {
             NavHost(
                 navController = navController,
-                startDestination = Tab.Portfolio.route,
+                startDestination = TABS_ROUTE,
             ) {
-                composable(Tab.Portfolio.route) { PortfolioScreen() }
-                composable(Tab.LastRun.route)   { LastRunScreen() }
-                composable(Tab.Memo.route)      { MemoScreen() }
-                composable(Tab.History.route)   {
-                    HistoryScreen(onRunClick = { date ->
-                        navController.navigate(RunDetailRoute.routeFor(date))
-                    })
+                composable(TABS_ROUTE) {
+                    HorizontalPager(
+                        state = pagerState,
+                        modifier = Modifier.fillMaxSize(),
+                    ) { page ->
+                        when (Tab.entries[page]) {
+                            Tab.Portfolio -> PortfolioScreen()
+                            Tab.LastRun   -> LastRunScreen()
+                            Tab.Memo      -> MemoScreen()
+                            Tab.History   -> HistoryScreen(onRunClick = { date ->
+                                navController.navigate(RunDetailRoute.routeFor(date))
+                            })
+                            Tab.Settings  -> SettingsScreen()
+                        }
+                    }
                 }
-                composable(Tab.Settings.route)  { SettingsScreen() }
                 composable(
                     route = RunDetailRoute.PATTERN,
                     arguments = listOf(navArgument("runDate") { type = NavType.StringType }),
@@ -131,16 +133,12 @@ fun RootScreen(initialTab: com.claudeportfolio.app.ui.components.Tab? = null) {
         PortfolioBottomNav(
             active = activeTab,
             onSelect = { tab ->
-                if (tab.route != currentRoute) {
-                    navController.navigate(tab.route) {
-                        // Tabs are siblings — pop everything above the start
-                        // destination so back from any tab exits the app.
-                        popUpTo(navController.graph.startDestinationId) {
-                            saveState = true
-                        }
-                        launchSingleTop = true
-                        restoreState = true
-                    }
+                // If we're on RunDetail, pop back to the pager first.
+                if (isRunDetail) {
+                    navController.popBackStack(TABS_ROUTE, inclusive = false)
+                }
+                coroutineScope.launch {
+                    pagerState.animateScrollToPage(tab.ordinal)
                 }
             },
         )
