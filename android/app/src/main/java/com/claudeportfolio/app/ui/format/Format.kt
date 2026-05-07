@@ -111,10 +111,14 @@ fun fmtAgo(iso: String?, now: Instant = Instant.now()): String {
 }
 
 private fun parseDate(iso: String): LocalDate {
-    // Accept either "YYYY-MM-DD" or full ISO instant.
+    // Accept either "YYYY-MM-DD" (no timezone — already a calendar
+    // date) or a full ISO instant (UTC) which we project to the
+    // device's local timezone before extracting the date. Without
+    // systemDefault here, e.g. a 9pm EST timestamp would render as
+    // "tomorrow" because UTC is already past midnight.
     return if (iso.length == 10 && iso[4] == '-') {
         LocalDate.parse(iso)
     } else {
-        Instant.parse(iso).atZone(ZoneId.of("UTC")).toLocalDate()
+        Instant.parse(iso).atZone(ZoneId.systemDefault()).toLocalDate()
     }
 }
