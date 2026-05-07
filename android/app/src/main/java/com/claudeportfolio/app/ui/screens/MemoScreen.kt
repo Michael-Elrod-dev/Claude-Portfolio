@@ -1,4 +1,7 @@
-@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@file:OptIn(
+    androidx.compose.foundation.layout.ExperimentalLayoutApi::class,
+    androidx.compose.material3.ExperimentalMaterial3Api::class,
+)
 
 package com.claudeportfolio.app.ui.screens
 
@@ -18,8 +21,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -61,11 +67,25 @@ private enum class MemoSection(val label: String) {
 fun MemoScreen() {
     val api = LocalApi.current
     val tick = LocalRefreshTick.current
-    val state = rememberLoadable(tick) { api.getMemo() }
-    when (state) {
-        is UiState.Loading -> com.claudeportfolio.app.ui.components.MemoSkeleton()
-        is UiState.Error   -> ErrorBanner(state.message)
-        is UiState.Ready   -> MemoBody(state.data)
+    var refreshKey by remember { mutableIntStateOf(0) }
+    var isRefreshing by remember { mutableStateOf(false) }
+    val state = rememberLoadable(tick, refreshKey) { api.getMemo() }
+    LaunchedEffect(state) {
+        if (state !is UiState.Loading) isRefreshing = false
+    }
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = {
+            isRefreshing = true
+            refreshKey++
+        },
+        modifier = Modifier.fillMaxSize(),
+    ) {
+        when (state) {
+            is UiState.Loading -> com.claudeportfolio.app.ui.components.MemoSkeleton()
+            is UiState.Error   -> ErrorBanner(state.message)
+            is UiState.Ready   -> MemoBody(state.data)
+        }
     }
 }
 

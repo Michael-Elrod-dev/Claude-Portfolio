@@ -27,10 +27,12 @@ data class Account(
     val lastEquity: Double,
     val dayPl: Double,
     val dayPlPct: Double,
-    val weekPl: Double? = null,
-    val weekPlPct: Double? = null,
-    val sinceInception: Double? = null,
-    val sinceInceptionPct: Double? = null,
+    val monthPl: Double? = null,
+    val monthPlPct: Double? = null,
+    val yearPl: Double? = null,
+    val yearPlPct: Double? = null,
+    val totalPl: Double? = null,
+    val totalPlPct: Double? = null,
 )
 
 @Serializable

@@ -31,6 +31,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.sp
 import com.claudeportfolio.app.data.model.Portfolio
 import com.claudeportfolio.app.data.model.Position
 import com.claudeportfolio.app.ui.LocalApi
@@ -109,15 +111,35 @@ private fun PortfolioBody(p: Portfolio) {
                     modifier = Modifier.padding(top = 4.dp),
                 )
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(18.dp),
-                    modifier = Modifier.padding(top = 14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Stat(label = "TODAY",
-                         value = "${fmtUsd(a.dayPl, sign = true)}  ${fmtPct(a.dayPlPct)}",
-                         positive = a.dayPl >= 0)
-                    Stat(label = "WEEK",
-                         value = "${fmtUsd(a.weekPl, sign = true)}  ${fmtPct(a.weekPlPct)}",
-                         positive = (a.weekPl ?: 0.0) >= 0)
+                    StatCol(
+                        label = "TODAY",
+                        pct = a.dayPlPct,
+                        dollars = a.dayPl,
+                        modifier = Modifier.weight(1f),
+                    )
+                    StatCol(
+                        label = "MONTH",
+                        pct = a.monthPlPct,
+                        dollars = a.monthPl,
+                        modifier = Modifier.weight(1f),
+                    )
+                    StatCol(
+                        label = "YEAR",
+                        pct = a.yearPlPct,
+                        dollars = a.yearPl,
+                        modifier = Modifier.weight(1f),
+                    )
+                    StatCol(
+                        label = "TOTAL",
+                        pct = a.totalPlPct,
+                        dollars = a.totalPl,
+                        modifier = Modifier.weight(1f),
+                    )
                 }
                 Row(
                     modifier = Modifier.padding(top = 14.dp),
@@ -199,15 +221,50 @@ private fun PositionRow(p: Position) {
     }
 }
 
+/**
+ * One column of the Today / Month / Year / Total grid in the equity hero.
+ * Three stacked rows per the design spec:
+ *   1. 10sp uppercase label in Dim
+ *   2. 15sp / weight 500 / tabular-nums signed percent, colored by sign
+ *   3. 11sp Dim / tabular-nums signed dollar amount, 0 decimals
+ * Spacing: 4dp between label/percent, 2dp between percent/dollars.
+ */
 @Composable
-private fun Stat(label: String, value: String, positive: Boolean) {
-    val type = LocalPortfolioTypography.current
-    Column {
-        Text(label, style = type.eyebrow, color = PortfolioColors.Dim)
+private fun StatCol(
+    label: String,
+    pct: Double?,
+    dollars: Double?,
+    modifier: Modifier = Modifier,
+) {
+    val positive = (pct ?: 0.0) >= 0
+    val plColor = if (positive) PortfolioColors.Pos else PortfolioColors.Neg
+
+    Column(modifier = modifier) {
         Text(
-            text = value,
-            style = type.bodySecondary.copy(textAlign = TextAlign.Start),
-            color = if (positive) PortfolioColors.Pos else PortfolioColors.Neg,
+            text = label,
+            style = androidx.compose.ui.text.TextStyle(
+                fontSize = 10.sp,
+                color = PortfolioColors.Dim,
+                letterSpacing = 0.03.em,
+            ),
+        )
+        Text(
+            text = fmtPct(pct, sign = true, decimals = 2),
+            style = androidx.compose.ui.text.TextStyle(
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Medium,
+                color = plColor,
+                fontFeatureSettings = "tnum",
+            ),
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        Text(
+            text = fmtUsd(dollars, sign = true, decimals = 0),
+            style = androidx.compose.ui.text.TextStyle(
+                fontSize = 11.sp,
+                color = PortfolioColors.Dim,
+                fontFeatureSettings = "tnum",
+            ),
             modifier = Modifier.padding(top = 2.dp),
         )
     }

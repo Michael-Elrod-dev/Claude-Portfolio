@@ -42,12 +42,17 @@ async function periodChange(client, period) {
       period,
       timeframe: '1D',
     });
-    const equity = (hist?.equity || []).filter((v) => v !== null);
+    // Filter out null AND zero values. Zero shows up at the start of a
+    // history window when the account didn't exist yet (or had no equity);
+    // including it makes "change since zero" come out as the current equity
+    // value, which is misleading. Once the account has had funded equity
+    // for the full window, this is a no-op.
+    const equity = (hist?.equity || []).filter((v) => v !== null && v > 0);
     if (equity.length < 2) return null;
     const first = equity[0];
     const last = equity[equity.length - 1];
     const pl = last - first;
-    const plPct = first > 0 ? pl / first : 0;
+    const plPct = pl / first;
     return { first, last, pl, plPct };
   } catch (err) {
     console.warn(`[alpaca] portfolio history (${period}) failed: ${err.message}`);
@@ -97,10 +102,11 @@ async function loadOpenedDates(client) {
 async function buildPortfolio({ memo } = {}) {
   const client = await getClient();
 
-  const [account, rawPositions, weekChange, allTime, openedDates] = await Promise.all([
+  const [account, rawPositions, monthChange, yearChange, allTime, openedDates] = await Promise.all([
     client.getAccount(),
     client.getPositions(),
-    periodChange(client, '1W'),
+    periodChange(client, '1M'),
+    periodChange(client, '1A'),
     periodChange(client, 'all'),
     loadOpenedDates(client),
   ]);
@@ -153,10 +159,12 @@ async function buildPortfolio({ memo } = {}) {
       lastEquity,
       dayPl,
       dayPlPct,
-      weekPl: weekChange?.pl ?? null,
-      weekPlPct: weekChange?.plPct ?? null,
-      sinceInception: allTime?.pl ?? null,
-      sinceInceptionPct: allTime?.plPct ?? null,
+      monthPl: monthChange?.pl ?? null,
+      monthPlPct: monthChange?.plPct ?? null,
+      yearPl: yearChange?.pl ?? null,
+      yearPlPct: yearChange?.plPct ?? null,
+      totalPl: allTime?.pl ?? null,
+      totalPlPct: allTime?.plPct ?? null,
     },
     positions: {
       count: holdings.length,

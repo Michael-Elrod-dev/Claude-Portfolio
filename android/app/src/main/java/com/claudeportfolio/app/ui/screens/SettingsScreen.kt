@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+
 package com.claudeportfolio.app.ui.screens
 
 import androidx.compose.animation.core.animateDpAsState
@@ -24,10 +26,12 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -87,12 +91,15 @@ fun SettingsScreen() {
 
     val scope = rememberCoroutineScope()
     val tick = LocalRefreshTick.current
+    var refreshKey by remember { mutableIntStateOf(0) }
+    var isRefreshing by remember { mutableStateOf(false) }
 
-    LaunchedEffect(tick) {
+    LaunchedEffect(tick, refreshKey) {
         activeFlag.value = api.getFlagActive().value
         liveFlag.value   = api.getFlagLive().value
         activity.value   = api.getActivity(limit = 30)
         briefing.value   = api.getBriefingLatest()
+        isRefreshing = false
     }
 
     val toolbarAndContent = Modifier
@@ -102,6 +109,14 @@ fun SettingsScreen() {
         .padding(horizontal = 22.dp)
         .padding(top = 8.dp, bottom = 24.dp)
 
+    PullToRefreshBox(
+        isRefreshing = isRefreshing,
+        onRefresh = {
+            isRefreshing = true
+            refreshKey++
+        },
+        modifier = Modifier.fillMaxSize(),
+    ) {
     Column(modifier = toolbarAndContent) {
         // ── 0. Connection ──────────────────────────────────────────────
         SectionLabel("CONNECTION")
@@ -170,6 +185,7 @@ fun SettingsScreen() {
             }
         }
     }
+    }   // end PullToRefreshBox
 
     // ── Confirmations ────────────────────────────────────────────────
     if (pendingLiveOn) {
