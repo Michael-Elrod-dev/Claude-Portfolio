@@ -25,7 +25,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import com.claudeportfolio.app.data.api.ApiFactory
-import com.claudeportfolio.app.data.api.MockApi
+import com.claudeportfolio.app.data.api.NotConnectedApi
 import com.claudeportfolio.app.data.api.PortfolioApi
 import com.claudeportfolio.app.data.api.RetrofitApi
 import com.claudeportfolio.app.data.config.ApiConfig
@@ -33,6 +33,7 @@ import com.claudeportfolio.app.data.config.ConfigStore
 import com.claudeportfolio.app.push.PushConstants
 import com.claudeportfolio.app.ui.LocalApi
 import com.claudeportfolio.app.ui.LocalConfigStore
+import com.claudeportfolio.app.ui.LocalEyebrow
 import com.claudeportfolio.app.ui.LocalIsLive
 import com.claudeportfolio.app.ui.LocalRefreshTick
 import com.claudeportfolio.app.ui.RootScreen
@@ -90,15 +91,15 @@ class MainActivity : ComponentActivity() {
         }
 
         val configStore = ConfigStore(applicationContext)
-        val mockApi: PortfolioApi = MockApi()
 
         setContent {
             val config by configStore.flow.collectAsState(initial = ApiConfig(null, null))
+            val eyebrow = remember { mutableStateOf("") }
 
             val api: PortfolioApi = remember(config.baseUrl, config.bearerToken) {
                 if (config.isConfigured) {
                     RetrofitApi(ApiFactory.build(config.baseUrl!!, config.bearerToken!!))
-                } else mockApi
+                } else NotConnectedApi
             }
 
             // Register the FCM token with /devices whenever we move from
@@ -119,6 +120,7 @@ class MainActivity : ComponentActivity() {
                 LocalIsLive provides config.isConfigured,
                 LocalConfigStore provides configStore,
                 LocalRefreshTick provides refreshTick,
+                LocalEyebrow provides eyebrow,
             ) {
                 ClaudePortfolioTheme {
                     Surface(

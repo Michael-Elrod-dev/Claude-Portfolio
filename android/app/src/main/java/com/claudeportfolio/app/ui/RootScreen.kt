@@ -9,7 +9,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import com.claudeportfolio.app.ui.LocalIsLive
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -73,7 +72,20 @@ fun RootScreen(initialTab: com.claudeportfolio.app.ui.components.Tab? = null) {
         else -> activeTab.label
     }
 
-    val barEyebrow = eyebrowFor(activeTab, currentRoute, currentArgs?.getString("runDate"))
+    // Eyebrow text comes from the active screen — each one updates
+    // LocalEyebrow.value from a LaunchedEffect once its data loads.
+    // RunDetail derives its eyebrow purely from the route arg so it can
+    // render immediately without waiting for the API.
+    val eyebrowState = LocalEyebrow.current
+    val isRunDetail = currentRoute?.startsWith(RunDetailRoute.PREFIX) == true
+    val runDateArg = currentArgs?.getString("runDate")
+    LaunchedEffect(currentRoute, runDateArg) {
+        if (isRunDetail && !runDateArg.isNullOrBlank()) {
+            eyebrowState.value = runDateArg.uppercase().replace("-", " · ")
+        }
+        // For tab screens, the screen itself updates the eyebrow once its
+        // data loads — leave alone here.
+    }
     val isLive = LocalIsLive.current
 
     Column(
@@ -82,9 +94,9 @@ fun RootScreen(initialTab: com.claudeportfolio.app.ui.components.Tab? = null) {
             .background(PortfolioColors.Bg),
     ) {
         PortfolioAppBar(
-            eyebrow = barEyebrow,
+            eyebrow = eyebrowState.value,
             title = barTitle,
-            statusLabel = if (isLive) "Live · paper acct" else "Mock data",
+            statusLabel = if (isLive) "Live · paper acct" else "Not connected",
             statusOk = isLive,
         )
 
@@ -132,24 +144,6 @@ fun RootScreen(initialTab: com.claudeportfolio.app.ui.components.Tab? = null) {
                 }
             },
         )
-    }
-}
-
-/**
- * Eyebrow text chosen per route. RunDetail uses the date arg; the five
- * tabs use placeholder strings the screens themselves can replace later
- * once they're driving from real data.
- */
-private fun eyebrowFor(tab: Tab, route: String?, runDateArg: String?): String {
-    if (route?.startsWith(RunDetailRoute.PREFIX) == true) {
-        return runDateArg.orEmpty().uppercase().replace("-", " · ")
-    }
-    return when (tab) {
-        Tab.Portfolio -> "SUN · MAY 3, 2026"
-        Tab.LastRun   -> "MAY 3 · DRY-RUN"
-        Tab.Memo      -> "UPDATED MAY 3"
-        Tab.History   -> "8 WEEKLY RUNS"
-        Tab.Settings  -> "BOT · PAPER ACCOUNT"
     }
 }
 

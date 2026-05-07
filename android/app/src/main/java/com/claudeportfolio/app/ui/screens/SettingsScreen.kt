@@ -48,6 +48,7 @@ import com.claudeportfolio.app.data.model.ActivityEvent
 import com.claudeportfolio.app.data.model.BriefingPayload
 import com.claudeportfolio.app.ui.LocalApi
 import com.claudeportfolio.app.ui.LocalConfigStore
+import com.claudeportfolio.app.ui.LocalEyebrow
 import com.claudeportfolio.app.ui.LocalIsLive
 import com.claudeportfolio.app.ui.LocalRefreshTick
 import com.claudeportfolio.app.ui.format.fmtAgo
@@ -91,14 +92,25 @@ fun SettingsScreen() {
 
     val scope = rememberCoroutineScope()
     val tick = LocalRefreshTick.current
+    val eyebrow = LocalEyebrow.current
     var refreshKey by remember { mutableIntStateOf(0) }
     var isRefreshing by remember { mutableStateOf(false) }
 
+    LaunchedEffect(Unit) {
+        eyebrow.value = "BOT · PAPER ACCOUNT"
+    }
     LaunchedEffect(tick, refreshKey) {
-        activeFlag.value = api.getFlagActive().value
-        liveFlag.value   = api.getFlagLive().value
-        activity.value   = api.getActivity(limit = 30)
-        briefing.value   = api.getBriefingLatest()
+        // API calls may throw NotConnectedException when the user hasn't
+        // configured a connection yet — Settings is the one screen that
+        // still has to function in that state (so the user can fill in
+        // the Connection form). Each call is wrapped so a failure on
+        // one doesn't poison the others.
+        runCatching { activeFlag.value = api.getFlagActive().value }
+        runCatching { liveFlag.value = api.getFlagLive().value }
+        runCatching { activity.value = api.getActivity(limit = 30) }
+            .onFailure { activity.value = emptyList() }
+        runCatching { briefing.value = api.getBriefingLatest() }
+            .onFailure { briefing.value = null }
         isRefreshing = false
     }
 
@@ -421,8 +433,9 @@ private fun prettyPrintJson(obj: JsonObject): String =
 // ── Connection section ───────────────────────────────────────────────
 //
 // Shows the saved API base URL + bearer token (the token is masked) and
-// lets the user edit / save / disconnect. When disconnected the rest of
-// the app falls back to MockApi.
+// lets the user edit / save / disconnect. When disconnected, every
+// other screen renders a "Not connected" error banner so it's never
+// ambiguous what's on screen.
 
 @Composable
 private fun ConnectionSection() {
@@ -451,7 +464,7 @@ private fun ConnectionSection() {
     ) {
         Text(
             text = if (isLive) "Live · talking to your API"
-                   else "Mock data · enter your API URL and bearer token to connect",
+                   else "Not connected · enter your API URL and bearer token to connect",
             style = type.caption,
             color = if (isLive) PortfolioColors.Pos else PortfolioColors.Dim,
             modifier = Modifier.padding(bottom = 12.dp),

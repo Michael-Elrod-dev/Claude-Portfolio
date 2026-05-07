@@ -1,22 +1,30 @@
 package com.claudeportfolio.app.ui
 
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.staticCompositionLocalOf
-import com.claudeportfolio.app.data.api.MockApi
 import com.claudeportfolio.app.data.api.PortfolioApi
 import com.claudeportfolio.app.data.config.ConfigStore
 
 /**
- * Provides the active [PortfolioApi] (Mock or Retrofit-backed) to every
- * composable. Set in [MainActivity] by reading the [ConfigStore] flow:
- *   - configured  → RetrofitApi
- *   - unconfigured → MockApi (the screens still work; banners show "MOCK")
+ * Provides the [PortfolioApi] to every composable. MainActivity provides
+ * a [com.claudeportfolio.app.data.api.RetrofitApi] when the user is
+ * configured, otherwise a [com.claudeportfolio.app.data.api.NotConnectedApi]
+ * that throws — the error path on each screen renders a clear "Not
+ * connected" banner instead of silently showing fake data.
+ *
+ * Default of `error()` here ensures we never accidentally fall back to
+ * something silently — every consumer must be wrapped in a
+ * CompositionLocalProvider in MainActivity.
  */
-val LocalApi = staticCompositionLocalOf<PortfolioApi> { MockApi() }
+val LocalApi = staticCompositionLocalOf<PortfolioApi> {
+    error("LocalApi not provided. Wrap in CompositionLocalProvider in MainActivity.")
+}
 
 /**
- * Whether the app is talking to the real API. False = MockApi, surface
- * a "MOCK" indicator in the status pill so it's obvious what you're
- * looking at.
+ * True iff the app has saved API config and is talking to the real
+ * backend. The status pill in the AppBar reads this to flip between
+ * "Live · paper acct" (green) and "Not connected" (red).
  */
 val LocalIsLive = staticCompositionLocalOf { false }
 
@@ -37,3 +45,13 @@ val LocalConfigStore = staticCompositionLocalOf<ConfigStore> {
  * shows fresh data, even if you were already sitting on it.
  */
 val LocalRefreshTick = staticCompositionLocalOf { 0 }
+
+/**
+ * Shared mutable string the AppBar reads for its eyebrow line. Each
+ * screen updates this from a [androidx.compose.runtime.LaunchedEffect]
+ * keyed on its loaded data, so the eyebrow always reflects what's
+ * actually on screen instead of a hard-coded handoff string.
+ */
+val LocalEyebrow = staticCompositionLocalOf<MutableState<String>> {
+    mutableStateOf("")
+}

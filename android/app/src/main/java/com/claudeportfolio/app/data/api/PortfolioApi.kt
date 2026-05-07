@@ -10,12 +10,15 @@ import com.claudeportfolio.app.data.model.RunSummary
 
 /**
  * Sole abstraction the screens depend on. Two implementations:
- *   - [MockApi]      — Phase 4 (in-memory data).
- *   - [RetrofitApi]  — Phase 5 (real HTTPS calls to the API Gateway).
+ *   - [RetrofitApi]      — real HTTPS calls to the API Gateway, used
+ *                          whenever the user has saved a base URL +
+ *                          bearer token in Settings → Connection.
+ *   - [NotConnectedApi]  — fallback that throws on every method so the
+ *                          screens render an explicit "Not connected"
+ *                          banner instead of silently faking data.
  *
- * All methods are suspend so a real backing implementation can do network
- * I/O without blocking. The mock returns instantly; ViewModels treat both
- * the same.
+ * All methods are suspend so the real implementation can do network I/O
+ * without blocking.
  */
 interface PortfolioApi {
 
