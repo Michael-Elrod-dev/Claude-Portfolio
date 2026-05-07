@@ -148,15 +148,14 @@ private fun PortfolioBody(p: Portfolio) {
                     )
                 }
                 Row(
-                    modifier = Modifier.padding(top = 14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 14.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
-                    Text("Cash", style = type.caption, color = PortfolioColors.Dim)
-                    Text(fmtUsd(a.cash, decimals = 0),
-                         style = type.caption, color = PortfolioColors.Fg)
-                    Text("Buying power", style = type.caption, color = PortfolioColors.Dim)
-                    Text(fmtUsd(a.buyingPower, decimals = 0),
-                         style = type.caption, color = PortfolioColors.Fg)
+                    CashCol(label = "CASH",         value = a.cash,        modifier = Modifier.weight(1f))
+                    CashCol(label = "BUYING POWER", value = a.buyingPower, modifier = Modifier.weight(1f))
+                    CashCol(label = "COST BASIS",   value = a.costBasis,   modifier = Modifier.weight(1f))
                 }
             }
         }
@@ -272,6 +271,41 @@ private fun StatCol(
                 fontFeatureSettings = "tnum",
             ),
             modifier = Modifier.padding(top = 2.dp),
+        )
+    }
+}
+
+/**
+ * One column of the Cash / Buying power / Cost basis grid below the
+ * P/L row. Same vertical rhythm as [StatCol] (label-then-value), but
+ * only two rows and full-Fg color since these aren't gains/losses.
+ *   1. 10sp uppercase label in Dim
+ *   2. 13sp / weight 500 / tabular-nums whole-dollar value in Fg
+ */
+@Composable
+private fun CashCol(
+    label: String,
+    value: Double?,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier) {
+        Text(
+            text = label,
+            style = androidx.compose.ui.text.TextStyle(
+                fontSize = 10.sp,
+                color = PortfolioColors.Dim,
+                letterSpacing = 0.03.em,
+            ),
+        )
+        Text(
+            text = fmtUsd(value, decimals = 0),
+            style = androidx.compose.ui.text.TextStyle(
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Medium,
+                color = PortfolioColors.Fg,
+                fontFeatureSettings = "tnum",
+            ),
+            modifier = Modifier.padding(top = 3.dp),
         )
     }
 }

@@ -164,12 +164,19 @@ async function buildPortfolio({ memo } = {}) {
     };
   });
 
+  const totalCostBasis = holdings.reduce((s, h) => s + (h.costBasis || 0), 0);
+
   const portfolio = {
     asOf: new Date().toISOString(),
     account: {
       portfolioValue: num(account.portfolio_value),
       cash: num(account.cash),
       buyingPower: num(account.buying_power),
+      // Sum of cost basis across all open positions. Surfaced on the
+      // account block (mirrors positions.totalCostBasis below) so the
+      // Portfolio screen's cash row can show it alongside cash and
+      // buying power.
+      costBasis: totalCostBasis,
       equity,
       lastEquity,
       dayPl,
@@ -190,7 +197,7 @@ async function buildPortfolio({ memo } = {}) {
     },
     positions: {
       count: holdings.length,
-      totalCostBasis: holdings.reduce((s, h) => s + (h.costBasis || 0), 0),
+      totalCostBasis,
       totalMarketValue: holdings.reduce((s, h) => s + (h.marketValue || 0), 0),
       totalUnrealizedPl: holdings.reduce((s, h) => s + (h.unrealizedPl || 0), 0),
       holdings,

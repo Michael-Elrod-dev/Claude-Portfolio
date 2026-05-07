@@ -23,6 +23,7 @@ data class Account(
     val portfolioValue: Double,
     val cash: Double,
     val buyingPower: Double,
+    val costBasis: Double? = null,
     val equity: Double,
     val lastEquity: Double,
     val dayPl: Double,

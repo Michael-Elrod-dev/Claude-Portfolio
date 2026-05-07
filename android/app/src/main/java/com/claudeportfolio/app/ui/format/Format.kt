@@ -24,6 +24,13 @@ private val LOC = Locale.US
  *    standalone numbers don't get a leading +).
  *  - compact=true switches to "$1.5k" form for values >= 1000.
  *  - decimals controls trailing precision (default 2).
+ *
+ * When decimals=0, the value is *truncated toward zero* rather than
+ * rounded — so $139.57 displays as "$139", not "$140". For "available
+ * cash" / "P/L" displays this is the conservative choice (never
+ * overstates positive amounts; never understates losses' magnitude
+ * compared to floor()-style rounding). Higher precisions (decimals > 0)
+ * use the standard half-up format because the cents are visible.
  */
 fun fmtUsd(
     n: Double?,
@@ -32,7 +39,7 @@ fun fmtUsd(
     decimals: Int = 2,
 ): String {
     if (n == null) return "—"
-    val abs = abs(n)
+    var abs = abs(n)
     val s = when {
         n < 0 -> "-"
         sign && n > 0 -> "+"
@@ -40,6 +47,10 @@ fun fmtUsd(
     }
     if (compact && abs >= 1000.0) {
         return "%s$%.1fk".format(LOC, s, abs / 1000.0)
+    }
+    if (decimals == 0) {
+        // Truncate toward zero so e.g. $139.57 doesn't display as $140.
+        abs = kotlin.math.floor(abs)
     }
     val pattern = "%,.${decimals}f"
     return "%s$%s".format(LOC, s, pattern.format(LOC, abs))
