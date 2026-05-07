@@ -29,7 +29,7 @@ fun RunDetailScreen(runDate: String) {
     val tick = LocalRefreshTick.current
     var refreshKey by remember { mutableIntStateOf(0) }
     var isRefreshing by remember { mutableStateOf(false) }
-    val state = rememberLoadable(runDate, tick, refreshKey) { api.getRunByDate(runDate) }
+    val state = rememberLoadable(api, runDate, tick, refreshKey) { api.getRunByDate(runDate) }
     LaunchedEffect(state) {
         if (state !is UiState.Loading) isRefreshing = false
     }

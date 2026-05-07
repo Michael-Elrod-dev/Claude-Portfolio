@@ -99,7 +99,7 @@ fun SettingsScreen() {
     LaunchedEffect(Unit) {
         eyebrows["Settings"] = "BOT · PAPER ACCOUNT"
     }
-    LaunchedEffect(tick, refreshKey) {
+    LaunchedEffect(api, tick, refreshKey) {
         // API calls may throw NotConnectedException when the user hasn't
         // configured a connection yet — Settings is the one screen that
         // still has to function in that state (so the user can fill in

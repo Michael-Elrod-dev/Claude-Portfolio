@@ -71,7 +71,7 @@ fun MemoScreen() {
     val eyebrows = LocalEyebrows.current
     var refreshKey by remember { mutableIntStateOf(0) }
     var isRefreshing by remember { mutableStateOf(false) }
-    val state = rememberLoadable(tick, refreshKey) { api.getMemo() }
+    val state = rememberLoadable(api, tick, refreshKey) { api.getMemo() }
     LaunchedEffect(state) {
         if (state !is UiState.Loading) isRefreshing = false
         if (state is UiState.Ready) {

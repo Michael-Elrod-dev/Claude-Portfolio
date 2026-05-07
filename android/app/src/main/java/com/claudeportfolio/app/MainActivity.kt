@@ -93,53 +93,64 @@ class MainActivity : ComponentActivity() {
         val configStore = ConfigStore(applicationContext)
 
         setContent {
-            val config by configStore.flow.collectAsState(initial = ApiConfig(null, null))
-            val eyebrows = remember { androidx.compose.runtime.mutableStateMapOf<String, String>() }
+            // null = DataStore hasn't read yet. Render an empty dark
+            // surface during the brief load so the screens never compose
+            // with a stale "not configured" assumption — that was causing
+            // a flash of "Not connected" on every cold start.
+            val config by configStore.flow.collectAsState(initial = null)
 
-            val api: PortfolioApi = remember(config.baseUrl, config.bearerToken) {
-                if (config.isConfigured) {
-                    RetrofitApi(ApiFactory.build(config.baseUrl!!, config.bearerToken!!))
-                } else NotConnectedApi
-            }
-
-            // Register the FCM token with /devices whenever we move from
-            // unconfigured → configured, or when the saved config changes.
-            LaunchedEffect(config.baseUrl, config.bearerToken) {
-                if (config.isConfigured && isFirebaseAvailable()) {
-                    runCatching { registerFcmToken(api) }
-                        .onFailure { e ->
-                            if (e is CancellationException) throw e
-                            android.util.Log.w("MainActivity",
-                                "FCM token registration failed: ${e.message}")
-                        }
+            ClaudePortfolioTheme {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(PortfolioColors.Bg)
+                        .windowInsetsPadding(WindowInsets.systemBars),
+                    color = PortfolioColors.Bg,
+                ) {
+                    val cfg = config ?: return@Surface  // splash: empty Bg
+                    AppContent(cfg, configStore)
                 }
             }
+        }
+    }
 
-            CompositionLocalProvider(
-                LocalApi provides api,
-                LocalIsLive provides config.isConfigured,
-                LocalConfigStore provides configStore,
-                LocalRefreshTick provides refreshTick,
-                LocalEyebrows provides eyebrows,
-            ) {
-                ClaudePortfolioTheme {
-                    Surface(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .background(PortfolioColors.Bg)
-                            .windowInsetsPadding(WindowInsets.systemBars),
-                        color = PortfolioColors.Bg,
-                    ) {
-                        // Pull the pending tab and clear it so a config-
-                        // change recomposition doesn't re-navigate.
-                        val initialTab = pendingTabFromIntent
-                        LaunchedEffect(initialTab) {
-                            if (initialTab != null) pendingTabFromIntent = null
-                        }
-                        RootScreen(initialTab = initialTab)
+    @Composable
+    private fun AppContent(config: ApiConfig, configStore: ConfigStore) {
+        val eyebrows = remember { androidx.compose.runtime.mutableStateMapOf<String, String>() }
+
+        val api: PortfolioApi = remember(config.baseUrl, config.bearerToken) {
+            if (config.isConfigured) {
+                RetrofitApi(ApiFactory.build(config.baseUrl!!, config.bearerToken!!))
+            } else NotConnectedApi
+        }
+
+        // Register the FCM token with /devices whenever we move from
+        // unconfigured → configured, or when the saved config changes.
+        LaunchedEffect(config.baseUrl, config.bearerToken) {
+            if (config.isConfigured && isFirebaseAvailable()) {
+                runCatching { registerFcmToken(api) }
+                    .onFailure { e ->
+                        if (e is CancellationException) throw e
+                        android.util.Log.w("MainActivity",
+                            "FCM token registration failed: ${e.message}")
                     }
-                }
             }
+        }
+
+        CompositionLocalProvider(
+            LocalApi provides api,
+            LocalIsLive provides config.isConfigured,
+            LocalConfigStore provides configStore,
+            LocalRefreshTick provides refreshTick,
+            LocalEyebrows provides eyebrows,
+        ) {
+            // Pull the pending tab and clear it so a config-change
+            // recomposition doesn't re-navigate.
+            val initialTab = pendingTabFromIntent
+            LaunchedEffect(initialTab) {
+                if (initialTab != null) pendingTabFromIntent = null
+            }
+            RootScreen(initialTab = initialTab)
         }
     }
 

@@ -55,7 +55,7 @@ fun HistoryScreen(onRunClick: (runDate: String) -> Unit) {
     val eyebrows = LocalEyebrows.current
     var refreshKey by remember { mutableIntStateOf(0) }
     var isRefreshing by remember { mutableStateOf(false) }
-    val state = rememberLoadable(tick, refreshKey) { api.getRunsList(limit = 20) }
+    val state = rememberLoadable(api, tick, refreshKey) { api.getRunsList(limit = 20) }
     LaunchedEffect(state) {
         if (state !is UiState.Loading) isRefreshing = false
         if (state is UiState.Ready) {

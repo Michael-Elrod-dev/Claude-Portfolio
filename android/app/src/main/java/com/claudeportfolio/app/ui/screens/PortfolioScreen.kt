@@ -61,7 +61,7 @@ fun PortfolioScreen() {
     val eyebrows = LocalEyebrows.current
     var refreshKey by remember { mutableIntStateOf(0) }
     var isRefreshing by remember { mutableStateOf(false) }
-    val state = rememberLoadable(tick, refreshKey) { api.getPortfolio() }
+    val state = rememberLoadable(api, tick, refreshKey) { api.getPortfolio() }
 
     // Whenever the load resolves (Ready or Error), clear the refresh
     // indicator. We can't hook directly into rememberLoadable, but a
