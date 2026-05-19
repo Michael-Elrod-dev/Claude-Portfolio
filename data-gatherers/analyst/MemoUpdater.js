@@ -6,7 +6,7 @@ const buildUserPrompt = require('../prompts/buildMemoUpdaterUserPrompt');
 const { extractJsonFromMessage } = require('./parseResponse');
 
 const DEFAULT_MODEL = 'claude-opus-4-7';
-const DEFAULT_MAX_TOKENS = 8_000;
+const DEFAULT_MAX_TOKENS = 16_000;
 const DEFAULT_EFFORT = 'high';
 
 /**
@@ -63,6 +63,12 @@ class MemoUpdater {
     });
 
     const message = await stream.finalMessage();
+    if (message.stop_reason === 'max_tokens') {
+      throw new Error(
+        `MemoUpdater hit max_tokens cap (${this.maxTokens}) — response was truncated. ` +
+          `Raise DEFAULT_MAX_TOKENS in MemoUpdater.js.`
+      );
+    }
     const newMemo = extractJsonFromMessage(message);
 
     return {

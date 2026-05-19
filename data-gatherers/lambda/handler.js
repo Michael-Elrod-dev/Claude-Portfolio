@@ -144,7 +144,10 @@ exports.handler = async (event = {}) => {
       briefing,
       recommendations: analysis.recommendations,
     });
-    log('MemoUpdater done.');
+    log(
+      `MemoUpdater done. Stop: ${memoResult.meta.stopReason}, ` +
+        `output tokens: ${memoResult.meta.usage.outputTokens.toLocaleString()}`
+    );
 
     // ── 6. Write memo ───────────────────────────────────────────────────────
     log(`Writing new memo to ${memoBackend.describe()}...`);
