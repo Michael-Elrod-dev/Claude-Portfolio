@@ -4,6 +4,18 @@ const Alpaca = require('@alpacahq/alpaca-trade-api');
 const { resolveSizing } = require('./sizingResolver');
 
 const MIN_NOTIONAL = 1.0;
+const SELL_SETTLE_POLL_MS = 2000;
+const SELL_SETTLE_TIMEOUT_MS = 120000;
+const ORDER_TERMINAL_STATES = new Set([
+  'filled',
+  'canceled',
+  'expired',
+  'rejected',
+  'done_for_day',
+  'replaced',
+  'stopped',
+  'suspended',
+]);
 
 /**
  * Takes the Analyst's recommendations and submits the corresponding
@@ -17,7 +29,11 @@ const MIN_NOTIONAL = 1.0;
  *   - Each order gets a deterministic client_order_id so re-runs of the
  *     same recommendation set don't double-submit (Alpaca rejects
  *     duplicates).
- *   - Sells run before buys to free cash.
+ *   - Sells run before buys to free cash. We submit all sells, poll
+ *     them until they reach a terminal state (or hit a timeout), then
+ *     refresh the account snapshot before placing buys — otherwise
+ *     buys race ahead of the sell fills and Alpaca rejects them for
+ *     insufficient buying power.
  *   - Below-minimum notionals are skipped.
  *
  * Trust boundary:
@@ -36,6 +52,8 @@ class Executor {
     paper = true,
     dryRun = true,
     runDate = null,
+    sellSettlePollMs = SELL_SETTLE_POLL_MS,
+    sellSettleTimeoutMs = SELL_SETTLE_TIMEOUT_MS,
   } = {}) {
     if (!keyId || !secretKey) {
       throw new Error('Executor requires keyId and secretKey');
@@ -43,11 +61,12 @@ class Executor {
     this.client = new Alpaca({ keyId, secretKey, paper });
     this.dryRun = dryRun;
     this.runDate = runDate || new Date().toISOString().slice(0, 10);
+    this.sellSettlePollMs = sellSettlePollMs;
+    this.sellSettleTimeoutMs = sellSettleTimeoutMs;
   }
 
   async execute(recommendationsObject) {
     const recs = recommendationsObject?.recommendations ?? [];
-    const results = [];
 
     if (recs.length === 0) {
       return {
@@ -59,8 +78,56 @@ class Executor {
       };
     }
 
-    // Pull current account + positions ONCE so sizing/validation use a
-    // consistent snapshot.
+    // Sells first, buys second — frees cash before deploying.
+    const sellRecs = recs.filter((r) => r.action === 'sell');
+    const buyRecs = recs.filter((r) => r.action === 'buy');
+
+    let snapshot = await this._accountSnapshot();
+
+    // ── Pass 1: sells ─────────────────────────────────────────────────────
+    const sellResults = [];
+    for (const rec of sellRecs) {
+      sellResults.push(await this._processOne(rec, snapshot));
+    }
+
+    // Wait for live sell orders to reach a terminal state before placing
+    // buys. createOrder returns when Alpaca *accepts* the order, but
+    // buying power isn't credited until it *fills* — without this gate,
+    // buys race ahead and get rejected for insufficient buying power.
+    // Skip the wait when there are no buys depending on the proceeds.
+    let settleNotice = null;
+    const liveSellIds = sellResults
+      .filter((r) => r.status === 'executed' && r.orderId)
+      .map((r) => r.orderId);
+    if (liveSellIds.length > 0 && buyRecs.length > 0) {
+      const { unsettled } = await this._waitForOrders(liveSellIds);
+      if (unsettled.length > 0) {
+        settleNotice = `${unsettled.length} of ${liveSellIds.length} sell order(s) did not reach a terminal state within ${this.sellSettleTimeoutMs}ms; buys submitted against whatever buying power Alpaca reports.`;
+      }
+      // Refresh snapshot so buy sizing reflects post-sell buying power
+      // and updated position values.
+      snapshot = await this._accountSnapshot();
+    }
+
+    // ── Pass 2: buys ──────────────────────────────────────────────────────
+    const buyResults = [];
+    for (const rec of buyRecs) {
+      buyResults.push(await this._processOne(rec, snapshot));
+    }
+
+    const results = [...sellResults, ...buyResults];
+    const summary = summarize(results);
+    return {
+      asOf: new Date().toISOString(),
+      dryRun: this.dryRun,
+      runDate: this.runDate,
+      summary,
+      results,
+      ...(settleNotice ? { notice: settleNotice } : {}),
+    };
+  }
+
+  async _accountSnapshot() {
     const [account, rawPositions] = await Promise.all([
       this.client.getAccount(),
       this.client.getPositions(),
@@ -76,27 +143,47 @@ class Executor {
         },
       ])
     );
+    return { equity, positionsBySymbol };
+  }
 
-    // Sells first, buys second — frees cash before deploying.
-    const ordered = [
-      ...recs.filter((r) => r.action === 'sell'),
-      ...recs.filter((r) => r.action === 'buy'),
-    ];
+  /**
+   * Poll each submitted sell order until it reaches a terminal state
+   * (filled, canceled, rejected, etc.) or the overall timeout elapses.
+   * `partially_filled` is intentionally not terminal — we want the
+   * order to finish before sizing buys against the freed cash.
+   *
+   * Transient read errors are swallowed; the next poll retries. Anything
+   * still pending at the deadline is returned in `unsettled` so the
+   * caller can surface it.
+   */
+  async _waitForOrders(orderIds) {
+    const deadline = Date.now() + this.sellSettleTimeoutMs;
+    const pending = new Set(orderIds);
+    const settled = [];
 
-    for (const rec of ordered) {
-      results.push(
-        await this._processOne(rec, { equity, positionsBySymbol })
+    while (pending.size > 0 && Date.now() < deadline) {
+      const checks = await Promise.all(
+        [...pending].map(async (id) => {
+          try {
+            const o = await this.client.getOrder(id);
+            return { id, status: o?.status ?? null };
+          } catch (_err) {
+            return { id, status: null };
+          }
+        })
       );
+      for (const { id, status } of checks) {
+        if (status && ORDER_TERMINAL_STATES.has(status)) {
+          settled.push({ id, status });
+          pending.delete(id);
+        }
+      }
+      if (pending.size > 0 && Date.now() < deadline) {
+        await sleep(this.sellSettlePollMs);
+      }
     }
 
-    const summary = summarize(results);
-    return {
-      asOf: new Date().toISOString(),
-      dryRun: this.dryRun,
-      runDate: this.runDate,
-      summary,
-      results,
-    };
+    return { settled, unsettled: [...pending] };
   }
 
   async _processOne(rec, { equity, positionsBySymbol }) {
@@ -199,6 +286,10 @@ function extractAlpacaError(err) {
     return `HTTP ${status}: ${body}`;
   }
   return err.message || String(err);
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function summarize(results) {
