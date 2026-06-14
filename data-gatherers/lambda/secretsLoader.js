@@ -10,10 +10,11 @@
  *
  *   Expected secret shape (JSON string stored in Secrets Manager):
  *   {
- *     "ANTHROPIC_API_KEY": "sk-ant-...",
- *     "ALPACA_KEY_ID":     "PK...",
- *     "ALPACA_SECRET_KEY": "...",
- *     "FINNHUB_API_KEY":   "..."
+ *     "ANTHROPIC_API_KEY":    "sk-ant-...",
+ *     "ALPACA_KEY_ID":        "PK...",
+ *     "ALPACA_SECRET_KEY":    "...",
+ *     "FINNHUB_API_KEY":      "...",
+ *     "TRADE_PARSER_API_KEY": "fp_..."
  *   }
  *
  * isActive()
@@ -43,7 +44,7 @@ const ssmClient = new SSMClient({ region: REGION });
 
 /**
  * Fetch API keys from Secrets Manager.
- * @returns {Promise<{ANTHROPIC_API_KEY: string, ALPACA_KEY_ID: string, ALPACA_SECRET_KEY: string, FINNHUB_API_KEY: string}>}
+ * @returns {Promise<{ANTHROPIC_API_KEY: string, ALPACA_KEY_ID: string, ALPACA_SECRET_KEY: string, FINNHUB_API_KEY: string, TRADE_PARSER_API_KEY: string}>}
  */
 async function loadSecrets() {
   const response = await smClient.send(
@@ -61,7 +62,7 @@ async function loadSecrets() {
     throw new Error(`Secret "${SECRET_NAME}" is not valid JSON.`);
   }
 
-  const required = ['ANTHROPIC_API_KEY', 'ALPACA_KEY_ID', 'ALPACA_SECRET_KEY', 'FINNHUB_API_KEY'];
+  const required = ['ANTHROPIC_API_KEY', 'ALPACA_KEY_ID', 'ALPACA_SECRET_KEY', 'FINNHUB_API_KEY', 'TRADE_PARSER_API_KEY'];
   const missing = required.filter((k) => !parsed[k]);
   if (missing.length > 0) {
     throw new Error(`Secret "${SECRET_NAME}" is missing keys: ${missing.join(', ')}`);

@@ -17,10 +17,11 @@ echo "Secret: ${SECRET_NAME}  Region: ${REGION}"
 echo "Leave a field blank to keep the existing value."
 echo
 
-read -rsp "ANTHROPIC_API_KEY: " ANTHROPIC_API_KEY; echo
-read -rsp "ALPACA_KEY_ID:     " ALPACA_KEY_ID;     echo
-read -rsp "ALPACA_SECRET_KEY: " ALPACA_SECRET_KEY; echo
-read -rsp "FINNHUB_API_KEY:   " FINNHUB_API_KEY;   echo
+read -rsp "ANTHROPIC_API_KEY:    " ANTHROPIC_API_KEY;    echo
+read -rsp "ALPACA_KEY_ID:        " ALPACA_KEY_ID;        echo
+read -rsp "ALPACA_SECRET_KEY:    " ALPACA_SECRET_KEY;    echo
+read -rsp "FINNHUB_API_KEY:      " FINNHUB_API_KEY;      echo
+read -rsp "TRADE_PARSER_API_KEY: " TRADE_PARSER_API_KEY; echo
 
 # Fetch the current secret so we can preserve any blank fields.
 CURRENT=$(aws secretsmanager get-secret-value \
@@ -48,6 +49,7 @@ updates = {
   'ALPACA_KEY_ID':     '''${ALPACA_KEY_ID}'''     or current.get('ALPACA_KEY_ID',''),
   'ALPACA_SECRET_KEY': '''${ALPACA_SECRET_KEY}''' or current.get('ALPACA_SECRET_KEY',''),
   'FINNHUB_API_KEY':   '''${FINNHUB_API_KEY}'''   or current.get('FINNHUB_API_KEY',''),
+  'TRADE_PARSER_API_KEY': '''${TRADE_PARSER_API_KEY}''' or current.get('TRADE_PARSER_API_KEY',''),
 }
 print(json.dumps(updates))
 ")

@@ -102,7 +102,9 @@ exports.handler = async (event = {}) => {
         paper: true,
       }),
       memo: new MemoSource({ backend: memoBackend }),
-      congressional: new CongressionalSource(),
+      congressional: new CongressionalSource({
+        apiKey: cachedSecrets.TRADE_PARSER_API_KEY,
+      }),
       earnings: new EarningsSource({
         apiKey: cachedSecrets.FINNHUB_API_KEY,
         windowDays: 14,

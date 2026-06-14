@@ -66,7 +66,7 @@ tool, where its synthesis ability adds the most value.
 |---|---|---|
 | Portfolio (positions, cash, orders) | Alpaca SDK | Source of truth |
 | Earnings calendar | Finnhub free API | Canonical dates — guardrail |
-| Congressional trades | Capitol Trades scrape | Free signal source |
+| Congressional trades | trade-parser API | Free signal source |
 | News on held + watched tickers | Claude web search at runtime | Synthesis is the value-add |
 | Macro / market commentary | Claude web search at runtime | Same |
 | Deeper research on candidates | Claude web search at runtime | Same |
@@ -82,14 +82,12 @@ data-gatherers/                     ← Pipeline lambda code
 │   ├── DataSource.js              ← abstract base class, fetch() contract
 │   ├── AlpacaSource.js            ← portfolio + recent orders
 │   ├── EarningsSource.js          ← upcoming earnings dates
-│   ├── CongressionalSource.js     ← Capitol Trades scraper
+│   ├── CongressionalSource.js     ← trade-parser API client
 │   ├── MemoSource.js              ← persistent memo reader
 │   ├── memoBackendFactory.js      ← picks S3 or local based on env
 │   ├── backends/
 │   │   ├── LocalFileBackend.js    ← memo backend for development
 │   │   └── S3Backend.js           ← memo backend for production
-│   └── utils/
-│       └── rscScanner.js          ← Next.js RSC payload parser
 ├── briefing/
 │   └── BriefingAssembler.js       ← orchestrates all sources → one JSON
 ├── analyst/
@@ -219,7 +217,7 @@ just running the pipeline locally for development, only step 1 matters.
 ```bash
 cd data-gatherers
 npm install
-cp .env.example .env  # fill in ALPACA_*, FINNHUB_API_KEY, ANTHROPIC_API_KEY
+cp .env.example .env  # fill in ALPACA_*, FINNHUB_API_KEY, ANTHROPIC_API_KEY, TRADE_PARSER_API_KEY
 
 # sanity-check each source
 npm run alpaca
@@ -353,8 +351,13 @@ initiating new positions into a binary event.
 
 ### CongressionalSource (`sources/CongressionalSource.js`)
 
-Pulls recently disclosed congressional stock trades from Capitol Trades
-(no public API — we scrape the embedded RSC payload from the page HTML).
+Pulls recently disclosed congressional stock trades from the trade-parser
+API (`https://trade-parser-production.up.railway.app`). Requires an API key
+sent as the `X-API-Key` header (env: `TRADE_PARSER_API_KEY`).
+
+> Previously this scraped Capitol Trades' embedded Next.js RSC payload. That
+> broke when the page structure changed, so it now consumes a dedicated API
+> (a separate project) that parses the same disclosures and serves clean JSON.
 
 **Role:** the actual **signal source** for this project. The pattern of
 who is trading what, when, and at what size is the closest thing to a real
@@ -363,8 +366,10 @@ edge in this whole pipeline.
 **Output shape:**
 ```
 {
-  windowDays, minValue, fetchedAt, count,
-  trades: [{ ticker, txType, value, txDate, filedDate, politician, party, chamber }]
+  windowDays, minSizeRank, fetchedAt, count,
+  trades: [{ ticker, txType, txDate, filedDate, owner,
+             sizeLabel, sizeExact, sizeRank, price,
+             politician, party, chamber, state }]
 }
 ```
 
@@ -372,26 +377,23 @@ edge in this whole pipeline.
 - **Lookback is on `filedDate`, not `txDate`.** Under the STOCK Act, members
   have up to 45 days to disclose. A 7-day filter on transaction date misses
   almost everything. Filing date answers the right question: "what trades
-  have become public since the last weekly run?"
-- Default `minValue = $15k` matches the STOCK Act reporting floor. Below
-  that, members aren't required to disclose at all, so anything below is
-  noise we'd rather not have.
-- **Page cap of 96 trades.** Capitol Trades' first page returns ~96 rows.
-  In a quiet week that's plenty; in a busy disclosure week we could miss
-  older filings. Heuristic for detecting cap: if the oldest filing in the
-  response is younger than the lookback window, we're truncated and should
-  paginate. Not implemented yet — flag.
-- **AWS Lambda IP blocking.** Capitol Trades sometimes returns 403 from AWS
-  IP ranges (the Pelosi-Mirror project hit this). When we deploy, options
-  are: residential proxy, GitHub Actions runner, or moving the scrape to a
-  small EC2 instance. Will revisit at deploy time.
+  have become public since the last weekly run?" The API's `since` param
+  filters on the *traded* date, so we don't use it — instead we page through
+  `sort=published&dir=desc` and stop once we cross the filing-date cutoff.
+- **Size is a bucket, not an exact value.** The API reports trade size as a
+  ranked bucket (`sizeRank` 1 = $1K–15K, 2 = $15K–50K, …) rather than a
+  dollar figure. Default `minSizeRank = 2` reproduces the old `$15k` floor
+  by excluding the smallest bucket — roughly the STOCK Act reporting floor,
+  below which members aren't required to disclose anyway.
+- **Politician join.** Trades carry only a `politicianId` (e.g. `S-peters`).
+  We fetch `/v1/politicians` once per run and index by id to resolve the
+  name, party, and chamber.
+- **Pagination.** We walk pages of 96 newest-filed-first until the cutoff,
+  capped at `MAX_PAGES` as a safety stop. A 7-day filing window is a small
+  slice of the full history, so this terminates quickly.
 - **Duplicate trades are real, not bugs.** When a member sells the same
   stock several times in one day, each transaction is disclosed separately.
   We pass them through faithfully — Claude can decide how to weight them.
-- The parser exploits Capitol Trades' Next.js App Router serialization:
-  trade JSON is embedded inside `__next_f.push([N, "..."])` script tags,
-  double-encoded (JSON inside JSON-string). The `rscScanner.js` utility
-  walks brace depth manually because `JSON.parse` can't operate at offsets.
 
 ### MemoSource (`sources/MemoSource.js`)
 
@@ -460,7 +462,7 @@ every week.
 - **Two-phase execution.** Phase 1 fetches Alpaca, memo, and congressional
   in parallel. Phase 2 fetches earnings, which depends on the symbol list
   derived from phase 1. Total runtime is dominated by the slowest phase 1
-  source (typically Capitol Trades at ~400ms).
+  source (typically the trade-parser API at ~400ms).
 - **Tiered failure handling.** Alpaca is critical — if we don't know the
   portfolio we can't decide anything, so failures abort the whole run.
   All other sources are soft: failures are caught, logged in `errors[]`,
@@ -708,10 +710,9 @@ the Executor turns those into `skipped` results.
 These don't belong to any one component but will need to be addressed
 before deployment.
 
-- **Lambda IP blocking** — see CongressionalSource notes.
-- **API key rotation** — the Alpaca and Finnhub keys are currently in
-  `.env`. For Lambda, move to AWS Secrets Manager. Never put them in
-  environment variables on the Lambda itself.
+- **API key rotation** — the Alpaca, Finnhub, and trade-parser keys are
+  currently in `.env`. For Lambda, move to AWS Secrets Manager. Never put
+  them in environment variables on the Lambda itself.
 - **Guardrails vs. guidance.** The "humans control inputs, Claude controls
   decisions" principle rules out telling Claude *what* to buy. It does not
   rule out telling Claude *what not to do* (e.g., don't put 80% of the
@@ -730,7 +731,7 @@ before deployment.
 ### Pipeline
 - [x] AlpacaSource — portfolio, cash, recent orders
 - [x] EarningsSource — earnings calendar guardrail
-- [x] CongressionalSource — Capitol Trades scrape
+- [x] CongressionalSource — trade-parser API
 - [x] MemoSource — pluggable backend (local file + S3)
 - [x] BriefingAssembler — orchestrates all sources into one JSON
 - [x] Analyst — Anthropic API call, web search, JSON parsing

@@ -1,153 +1,213 @@
 'use strict';
 
 const DataSource = require('./DataSource');
-const { scanForTrades, extractRscStrings } = require('./utils/rscScanner');
 
-const CAPITOL_TRADES_URL =
-  'https://www.capitoltrades.com/trades?assetType=stock&pageSize=96&page=1';
-
-const BROWSER_HEADERS = {
-  'User-Agent':
-    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
-    '(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-  Accept:
-    'text/html,application/xhtml+xml,application/xml;q=0.9,' +
-    'image/avif,image/webp,image/apng,*/*;q=0.8',
-  'Accept-Language': 'en-US,en;q=0.9',
-  // Omit 'br' — Node's fetch can handle it but we want consistency with
-  // the Python reference scraper which had no Brotli support.
-  'Accept-Encoding': 'gzip, deflate',
-  'Cache-Control': 'no-cache',
-  Pragma: 'no-cache',
-  'Sec-Fetch-Dest': 'document',
-  'Sec-Fetch-Mode': 'navigate',
-  'Sec-Fetch-Site': 'none',
-  'Upgrade-Insecure-Requests': '1',
-};
-
-const TICKER_RE = /^[A-Z]{1,5}$/;
+const DEFAULT_BASE_URL = 'https://trade-parser-production.up.railway.app';
 const DEFAULT_LOOKBACK_DAYS = 7;
-const DEFAULT_MIN_VALUE = 15_000;
 
-const TX_TYPE_MAP = {
-  buy: 'buy',
-  purchase: 'buy',
-  sell: 'sell',
-  sale: 'sell',
-  exchange: 'exchange',
+// The API reports trade size as a bucket, not an exact dollar amount. Ranks:
+//   1 => $1,001–$15,000, 2 => $15,001–$50,000, 3 => $50,001–$100,000, ...
+// The old scraper filtered on an exact value >= $15,000. minSizeRank = 2
+// reproduces that floor by excluding the smallest ($1K–$15K) bucket.
+const DEFAULT_MIN_SIZE_RANK = 2;
+
+const PAGE_SIZE = 96;
+// Safety cap on pagination. A 7-day filing window is a tiny slice of the full
+// history; this guards against an unbounded walk if the cutoff logic ever
+// fails to terminate (e.g. unexpected sort order).
+const MAX_PAGES = 30;
+
+const MONTHS = {
+  Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
+  Jul: '07', Aug: '08', Sep: '09', Oct: '10', Nov: '11', Dec: '12',
 };
+
+const TX_TYPE_MAP = { buy: 'buy', sell: 'sell', exchange: 'exchange' };
+const PARTY_MAP = { D: 'Democrat', R: 'Republican', I: 'Independent' };
 
 /**
- * Pulls recently DISCLOSED congressional stock trades from Capitol Trades.
+ * Pulls recently DISCLOSED congressional stock trades from the trade-parser
+ * API (https://trade-parser-production.up.railway.app).
  *
- * Capitol Trades has no public API, but its Next.js front-end embeds the
- * full trade dataset in the page HTML as RSC payload strings. This source
- * fetches the page once, decodes the embedded JSON, and applies filters.
- * No API key required.
+ * This replaces the old Capitol Trades HTML scraper, which broke when the
+ * site's page structure changed. The API exposes the same underlying data
+ * (it parses the same disclosures) as clean JSON, so this source fetches it
+ * directly instead of decoding embedded RSC payloads. Requires an API key
+ * sent as the `X-API-Key` header (env: TRADE_PARSER_API_KEY).
  *
- * The lookback window is applied to the FILING date (pubDate), not the
- * transaction date. Under the STOCK Act, members have up to 45 days to
- * disclose a trade, so a 7-day filter on transaction date would miss
- * almost everything. Filing date answers the question we actually care
+ * The lookback window is applied to the FILING date (the API's `published`
+ * date), not the transaction date. Under the STOCK Act, members have up to
+ * 45 days to disclose a trade, so a 7-day filter on transaction date would
+ * miss almost everything. Filing date answers the question we actually care
  * about: "what trades have become public since the last weekly run?"
+ *
+ * NOTE: the API's `since` query param filters on the TRADED date, so we do
+ * not use it. Instead we page through `sort=published&dir=desc` and stop
+ * once we cross the filing-date cutoff.
  */
 class CongressionalSource extends DataSource {
-  constructor({ lookbackDays = DEFAULT_LOOKBACK_DAYS, minValue = DEFAULT_MIN_VALUE } = {}) {
+  constructor({
+    apiKey = process.env.TRADE_PARSER_API_KEY,
+    baseUrl = DEFAULT_BASE_URL,
+    lookbackDays = DEFAULT_LOOKBACK_DAYS,
+    minSizeRank = DEFAULT_MIN_SIZE_RANK,
+  } = {}) {
     super({ name: 'congressional' });
+    this.apiKey = apiKey;
+    this.baseUrl = baseUrl.replace(/\/+$/, '');
     this.lookbackDays = lookbackDays;
-    this.minValue = minValue;
+    this.minSizeRank = minSizeRank;
   }
 
   async fetch() {
-    const html = await this._fetchHtml();
-
-    // Pass 1: scan the raw HTML directly. Sometimes trade JSON is present
-    // unescaped in the page (rare but cheap to check).
-    let raw = scanForTrades(html);
-
-    // Pass 2: decode the RSC payload strings and scan inside them. This is
-    // where Capitol Trades actually puts the data.
-    if (raw.length === 0) {
-      const rscStrings = extractRscStrings(html);
-      const seen = new Set();
-      for (const content of rscStrings) {
-        for (const t of scanForTrades(content)) {
-          const uid = String(t._txId || `${t.txDate}-${t.txType}-${t._issuerId || ''}`);
-          if (!seen.has(uid)) {
-            seen.add(uid);
-            raw.push(t);
-          }
-        }
-      }
-    }
-
-    if (raw.length === 0) {
+    if (!this.apiKey) {
       throw new Error(
-        `No trade objects found in Capitol Trades HTML (length=${html.length}). ` +
-          'Page structure may have changed.'
+        'TRADE_PARSER_API_KEY is not set — cannot fetch congressional trades.'
       );
     }
 
     const cutoff = this._cutoffDate();
-    const trades = raw
-      .map((t) => this._normalize(t))
+    const politicians = await this._fetchPoliticianMap();
+    const rawTrades = await this._fetchTradesUntilCutoff(cutoff);
+
+    const trades = rawTrades
+      .map((t) => this._normalize(t, politicians))
       .filter((t) => t !== null)
-      .filter((t) => t.value >= this.minValue)
+      .filter((t) => t.sizeRank >= this.minSizeRank)
       .filter((t) => t.filedDate && t.filedDate >= cutoff)
       .sort((a, b) => b.filedDate.localeCompare(a.filedDate));
 
     return {
       windowDays: this.lookbackDays,
-      minValue: this.minValue,
+      minSizeRank: this.minSizeRank,
       fetchedAt: new Date().toISOString(),
       count: trades.length,
       trades,
     };
   }
 
-  async _fetchHtml() {
-    const res = await fetch(CAPITOL_TRADES_URL, { headers: BROWSER_HEADERS });
-    if (res.status === 403) {
+  /**
+   * Page through trades newest-filed first, accumulating until we cross the
+   * cutoff. Because the list is sorted by filing date descending, the first
+   * trade older than the cutoff means every trade after it is older too, so
+   * we can stop early.
+   */
+  async _fetchTradesUntilCutoff(cutoff) {
+    const out = [];
+    for (let page = 0; page < MAX_PAGES; page++) {
+      const offset = page * PAGE_SIZE;
+      const body = await this._getJson(
+        `/v1/trades?sort=published&dir=desc&limit=${PAGE_SIZE}&offset=${offset}`
+      );
+      const batch = Array.isArray(body.data) ? body.data : [];
+      if (batch.length === 0) break;
+
+      let crossedCutoff = false;
+      for (const t of batch) {
+        const filedDate = this._publishedToDate(t.published);
+        if (filedDate && filedDate < cutoff) {
+          crossedCutoff = true;
+          break;
+        }
+        out.push(t);
+      }
+
+      if (crossedCutoff) break;
+      if (offset + batch.length >= (body.total ?? 0)) break;
+    }
+    return out;
+  }
+
+  /**
+   * Fetch all politicians once and index by id, so each trade's politicianId
+   * can be resolved to a name, party, and chamber. Trades carry only the id
+   * (e.g. "S-peters", "H-FL-salazar").
+   */
+  async _fetchPoliticianMap() {
+    const list = await this._getJson('/v1/politicians?limit=1000');
+    const map = new Map();
+    if (Array.isArray(list)) {
+      for (const p of list) {
+        if (p && p.id) map.set(p.id, p);
+      }
+    }
+    return map;
+  }
+
+  async _getJson(path) {
+    const res = await fetch(`${this.baseUrl}${path}`, {
+      headers: { 'X-API-Key': this.apiKey, Accept: 'application/json' },
+    });
+    if (res.status === 401 || res.status === 403) {
       throw new Error(
-        'Capitol Trades returned 403 — IP may be blocked (common from Lambda).'
+        `trade-parser API returned ${res.status} — check TRADE_PARSER_API_KEY.`
       );
     }
     if (!res.ok) {
-      throw new Error(`Capitol Trades returned ${res.status}: ${await res.text()}`);
+      throw new Error(`trade-parser API returned ${res.status} for ${path}.`);
     }
-    return res.text();
+    return res.json();
   }
 
-  _normalize(t) {
-    const issuer = t.issuer || {};
-    const tickerRaw = String(issuer.issuerTicker || issuer.ticker || '').toUpperCase();
-    const ticker = tickerRaw.split(':')[0].trim();
-    if (!ticker || !TICKER_RE.test(ticker)) return null;
+  _normalize(t, politicians) {
+    const ticker = String(t.issuerId || '').toUpperCase().trim();
+    if (!ticker) return null;
 
-    const txDate = String(t.txDate || '').slice(0, 10);
+    const txDate = this._tradedToDate(t.traded);
     if (!txDate) return null;
 
-    const value = Number(t.value) || 0;
-    if (value <= 0) return null;
+    const filedDate = this._publishedToDate(t.published);
 
-    const rawType = String(t.txType || '').toLowerCase();
+    const rawType = String(t.type || '').toLowerCase();
     const txType = TX_TYPE_MAP[rawType] || rawType;
 
-    const politician = t.politician || {};
-    const politicianName = [politician.lastName, politician.firstName]
-      .filter(Boolean)
-      .join(', ') || null;
+    const p = politicians.get(t.politicianId) || {};
+    const chamber = (p.chamber || this._chamberFromId(t.politicianId) || '')
+      .toLowerCase() || null;
+    const party = p.party ? PARTY_MAP[p.party] || p.party : null;
 
     return {
       ticker,
       txType,
-      value,
       txDate,
-      filedDate: t.pubDate ? String(t.pubDate).slice(0, 10) : null,
-      politician: politicianName,
-      party: politician.party || null,
-      chamber: politician.chamber || null,
+      filedDate,
+      owner: t.owner || null,
+      sizeLabel: t.sizeLabel || null,
+      sizeExact: t.sizeExact || null,
+      sizeRank: Number(t.sizeRank) || 0,
+      price: t.price ?? null,
+      politician: p.name || t.politicianId || null,
+      party,
+      chamber,
+      state: p.state || null,
     };
+  }
+
+  /** "S-peters" => senate, "H-FL-salazar" => house. */
+  _chamberFromId(id) {
+    if (typeof id !== 'string') return null;
+    if (id.startsWith('S-')) return 'senate';
+    if (id.startsWith('H-')) return 'house';
+    return null;
+  }
+
+  /** { day: 21, month: "May", year: "2026" } => "2026-05-21". */
+  _tradedToDate(traded) {
+    if (!traded) return null;
+    const mm = MONTHS[traded.month];
+    const dd = String(traded.day).padStart(2, '0');
+    if (!mm || !traded.day || !traded.year) return null;
+    return `${traded.year}-${mm}-${dd}`;
+  }
+
+  /** { label: "11 Jun", year: "2026" } => "2026-06-11". */
+  _publishedToDate(published) {
+    if (!published || !published.label) return null;
+    const m = /^(\d{1,2})\s+([A-Za-z]{3})$/.exec(published.label.trim());
+    if (!m) return null;
+    const mm = MONTHS[m[2]];
+    if (!mm || !published.year) return null;
+    return `${published.year}-${mm}-${m[1].padStart(2, '0')}`;
   }
 
   _cutoffDate() {
