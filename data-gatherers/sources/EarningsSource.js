@@ -5,6 +5,15 @@ const DataSource = require('./DataSource');
 const FINNHUB_BASE_URL = 'https://finnhub.io/api/v1';
 const DEFAULT_WINDOW_DAYS = 14;
 
+// Finnhub's free tier rate-limits bursts. We fetch in small batches rather
+// than firing one request per symbol all at once, retry transient failures
+// (429 / 5xx) with a short backoff, and isolate per-symbol failures so one
+// rate-limited ticker can't drop the entire earnings guardrail.
+const CONCURRENCY = 5;
+const BATCH_DELAY_MS = 250;
+const MAX_RETRIES = 2;
+const RETRY_BASE_MS = 500;
+
 const TIME_MAP = {
   bmo: 'before_open',
   amc: 'after_close',
@@ -35,20 +44,56 @@ class EarningsSource extends DataSource {
     }
 
     const { from, to } = this._windowDates();
-    const results = await Promise.all(
-      symbols.map((symbol) => this._fetchSymbol(symbol, from, to))
-    );
+
+    // Fetch in small batches to stay under Finnhub's burst limit. Each symbol
+    // is isolated: a persistent failure lands in `skipped` instead of
+    // rejecting the whole run.
+    const results = [];
+    for (let i = 0; i < symbols.length; i += CONCURRENCY) {
+      const batch = symbols.slice(i, i + CONCURRENCY);
+      const batchResults = await Promise.all(
+        batch.map((symbol) => this._fetchSymbolSafe(symbol, from, to))
+      );
+      results.push(...batchResults);
+      if (i + CONCURRENCY < symbols.length) {
+        await this._sleep(BATCH_DELAY_MS);
+      }
+    }
+
+    const failed = results.filter((r) => r.error);
+
+    // If every symbol failed, this is a real outage (or a bad key) rather than
+    // a flaky ticker — surface it as a source error so the assembler records
+    // it, matching the original fail-loud behaviour.
+    if (failed.length === symbols.length) {
+      throw new Error(
+        `Finnhub failed for all ${symbols.length} symbol(s). First error: ${failed[0].error}`
+      );
+    }
 
     const events = results
-      .flat()
+      .filter((r) => !r.error)
+      .flatMap((r) => r.events)
       .sort((a, b) => a.date.localeCompare(b.date));
 
-    return {
-      windowDays: this.windowDays,
-      from,
-      to,
-      events,
-    };
+    const snapshot = { windowDays: this.windowDays, from, to, events };
+    if (failed.length > 0) {
+      snapshot.skipped = failed.map((r) => ({ symbol: r.symbol, reason: r.error }));
+    }
+    return snapshot;
+  }
+
+  /**
+   * Wrap _fetchSymbol so a single symbol's failure is contained: returns
+   * { symbol, events } on success or { symbol, error } on persistent failure.
+   */
+  async _fetchSymbolSafe(symbol, from, to) {
+    try {
+      const events = await this._fetchSymbol(symbol, from, to);
+      return { symbol, events };
+    } catch (err) {
+      return { symbol, error: err.message };
+    }
   }
 
   async _fetchSymbol(symbol, from, to) {
@@ -58,22 +103,37 @@ class EarningsSource extends DataSource {
     url.searchParams.set('symbol', symbol);
     url.searchParams.set('token', this.apiKey);
 
-    const res = await fetch(url);
-    if (!res.ok) {
+    for (let attempt = 0; ; attempt++) {
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        const calendar = Array.isArray(data.earningsCalendar)
+          ? data.earningsCalendar
+          : [];
+        return calendar.map((row) => ({
+          symbol: row.symbol,
+          date: row.date,
+          time: TIME_MAP[row.hour] || row.hour || 'unknown',
+          epsEstimate: row.epsEstimate ?? null,
+          revenueEstimate: row.revenueEstimate ?? null,
+          quarter: row.quarter ?? null,
+          year: row.year ?? null,
+        }));
+      }
+
+      // 429 (rate limit) and 5xx are transient — back off and retry. Other
+      // 4xx (bad symbol, bad key) won't improve on retry, so fail fast.
+      const transient = res.status === 429 || res.status >= 500;
+      if (transient && attempt < MAX_RETRIES) {
+        await this._sleep(RETRY_BASE_MS * 2 ** attempt);
+        continue;
+      }
       throw new Error(`Finnhub ${res.status} for ${symbol}: ${await res.text()}`);
     }
-    const data = await res.json();
-    const calendar = Array.isArray(data.earningsCalendar) ? data.earningsCalendar : [];
+  }
 
-    return calendar.map((row) => ({
-      symbol: row.symbol,
-      date: row.date,
-      time: TIME_MAP[row.hour] || row.hour || 'unknown',
-      epsEstimate: row.epsEstimate ?? null,
-      revenueEstimate: row.revenueEstimate ?? null,
-      quarter: row.quarter ?? null,
-      year: row.year ?? null,
-    }));
+  _sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   _windowDates() {
