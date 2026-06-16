@@ -282,7 +282,7 @@ private fun monoMetaFor(rec: Recommendation): String {
 }
 
 private fun fmtCost(input: Int?, output: Int?): String {
-    // Rough Opus 4.7 list pricing: $5/M input, $25/M output.
+    // Rough Opus 4.8 list pricing: $5/M input, $25/M output.
     val cost = ((input ?: 0) * 5.0 + (output ?: 0) * 25.0) / 1_000_000.0
     return "$" + "%.2f".format(cost)
 }

@@ -505,9 +505,9 @@ trade recommendations. This is the brain of the pipeline.
 
 | Choice | Value | Rationale |
 |---|---|---|
-| Model | `claude-opus-4-7` | Best-in-class for agentic / long-horizon work |
-| Thinking | `{type: "adaptive"}` | Required on Opus 4.7 — `budget_tokens` is removed and would 400 |
-| Effort | `xhigh` | Recommended setting on 4.7 for coding/agentic workloads |
+| Model | `claude-opus-4-8` | Most capable model for agentic / long-horizon work |
+| Thinking | `{type: "adaptive"}` | Required on Opus 4.8 — `budget_tokens` is removed and would 400 |
+| Effort | `xhigh` | Recommended setting on 4.8 for coding/agentic workloads |
 | Max tokens | 32,000 | Comfortable headroom for thinking + multi-search reasoning + final output |
 | Web search | `web_search_20260209`, `max_uses: 15` | Caps catastrophic loops while leaving room for genuine research |
 | Streaming | Yes (`stream()` + `finalMessage()`) | Required since `max_tokens > 16k` would risk SDK HTTP timeouts |
@@ -539,7 +539,7 @@ trade recommendations. This is the brain of the pipeline.
 - **Token budgets per run.** Empty briefing + cached system prompt is
   ~5k input tokens. With a fully populated briefing and 15 web searches
   pulling in news content, expect 50k–200k input tokens and 5k–30k
-  output tokens per run. At Opus 4.7 list pricing (~$5/M input, $25/M
+  output tokens per run. At Opus 4.8 list pricing (~$5/M input, $25/M
   output), that's roughly $0.50–$2.00 per weekly run — well below the
   ~$10/year estimate from prior planning, but worth tracking once we
   have real telemetry.

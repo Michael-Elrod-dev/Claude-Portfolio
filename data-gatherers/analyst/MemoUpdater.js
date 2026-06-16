@@ -5,7 +5,7 @@ const SYSTEM_PROMPT = require('../prompts/memoUpdaterSystemPrompt');
 const buildUserPrompt = require('../prompts/buildMemoUpdaterUserPrompt');
 const { extractJsonFromMessage } = require('./parseResponse');
 
-const DEFAULT_MODEL = 'claude-opus-4-7';
+const DEFAULT_MODEL = 'claude-opus-4-8';
 const DEFAULT_MAX_TOKENS = 16_000;
 const DEFAULT_EFFORT = 'high';
 

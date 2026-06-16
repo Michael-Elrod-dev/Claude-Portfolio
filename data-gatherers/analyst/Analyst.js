@@ -5,7 +5,7 @@ const SYSTEM_PROMPT = require('../prompts/analystSystemPrompt');
 const buildUserPrompt = require('../prompts/buildAnalystUserPrompt');
 const { parseRecommendations } = require('./parseResponse');
 
-const DEFAULT_MODEL = 'claude-opus-4-7';
+const DEFAULT_MODEL = 'claude-opus-4-8';
 const DEFAULT_MAX_TOKENS = 32_000;
 const DEFAULT_MAX_WEB_SEARCHES = 15;
 const DEFAULT_EFFORT = 'xhigh';
@@ -15,10 +15,10 @@ const DEFAULT_EFFORT = 'xhigh';
  * trade recommendations.
  *
  * Configuration choices baked in here (see README.md for rationale):
- *   - model: claude-opus-4-7 (Opus 4.7 is best-in-class for agentic work)
- *   - thinking: adaptive (the only mode 4.7 accepts; budget_tokens is
+ *   - model: claude-opus-4-8 (Opus 4.8 is the most capable model for agentic work)
+ *   - thinking: adaptive (the only mode 4.8 accepts; budget_tokens is
  *     removed and would 400)
- *   - effort: xhigh (recommended for coding/agentic work on 4.7)
+ *   - effort: xhigh (recommended for coding/agentic work on 4.8)
  *   - web_search: 15-call budget per run
  *   - prompt cache: system prompt is wrapped as an ephemeral text block,
  *     so weekly runs only pay full price for the user prompt and tools
