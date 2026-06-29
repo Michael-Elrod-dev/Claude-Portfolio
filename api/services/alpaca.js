@@ -21,7 +21,9 @@ async function getClient() {
   cachedClient = new Alpaca({
     keyId: keys.ALPACA_KEY_ID,
     secretKey: keys.ALPACA_SECRET_KEY,
-    paper: true,
+    // Live brokerage account — must match the pipeline lambda's setting so
+    // the Android app reads back the same account the bot trades on.
+    paper: false,
   });
   return cachedClient;
 }

@@ -2,13 +2,18 @@
 
 A bi-weekly automated trading system that runs on AWS Lambda, gathers
 market data from several sources, asks Claude (via the Anthropic API) for
-trade recommendations, executes them on an Alpaca paper trading account,
+trade recommendations, executes them on an Alpaca brokerage account,
 and reports results to an Android companion app via FCM push notification.
 
-This is a **paper-trading research project**, run in parallel to the separate
-Pelosi-Mirror system that handles real money. The core design principle is
-**"humans control the inputs, Claude controls the decisions"** — we do not
-shape what Claude buys, only what data it sees.
+The core design principle is **"humans control the inputs, Claude controls
+the decisions"** — we do not shape what Claude buys, only what data it sees.
+
+> **History:** this began as a paper-trading research project run in parallel
+> to a separate Pelosi-Mirror real-money strategy. That experiment concluded
+> in June 2026; Claude was then given control of the (formerly Pelosi) live
+> brokerage account, which it now trades. The pipeline points at the live
+> account (`paper: false`); `paper: true` survives only in the local
+> `run-*.js` dev harnesses, which hit a paper account for safe testing.
 
 The system has three deployable units:
 
@@ -658,10 +663,14 @@ trades — and therefore the one with the most defensive defaults.
 
 **Notes / considerations:**
 
-- **Dry run is the default. Live trading requires explicit opt-in via
-  `EXECUTOR_LIVE=true` in the environment.** No CLI flag — the env-var
-  requirement is intentional friction. Even live, all orders go to the
-  paper account configured by `ALPACA_KEY_ID`/`ALPACA_SECRET_KEY`.
+- **Two independent switches — don't conflate them.** (1) `paper: false`
+  in the pipeline + API lambdas selects the **live brokerage account** (real
+  money) via the `ALPACA_KEY_ID`/`ALPACA_SECRET_KEY` secret; this is a code
+  constant, not a runtime flag, because the system never trades a paper
+  account in production. (2) `EXECUTOR_LIVE` / SSM `claude-portfolio-live`
+  is the **dry-run vs. place-orders** rail: when false the executor logs the
+  orders it would place without sending them. Dry-run is the safe default
+  and the env-var requirement is intentional friction.
 - **Confidence gates auto-execution.** By default only `confidence: high`
   recommendations are auto-submitted; `medium` and `low` come back with
   status `queued_for_review` so a human can decide. Configurable via

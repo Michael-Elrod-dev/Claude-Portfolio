@@ -99,7 +99,7 @@ exports.handler = async (event = {}) => {
       alpaca: new AlpacaSource({
         keyId: cachedSecrets.ALPACA_KEY_ID,
         secretKey: cachedSecrets.ALPACA_SECRET_KEY,
-        paper: true,
+        paper: false,
       }),
       memo: new MemoSource({ backend: memoBackend }),
       congressional: new CongressionalSource({
@@ -159,10 +159,14 @@ exports.handler = async (event = {}) => {
 
     // ── 7. Execute ──────────────────────────────────────────────────────────
     const dryRun = !(await isLive());
+    // paper:false → the live brokerage account. This is REAL money. The only
+    // remaining safety rail is dryRun (SSM /claude-portfolio-live, env
+    // EXECUTOR_LIVE): when dryRun is true the executor logs the orders it
+    // would place without sending them to Alpaca.
     const executor = new Executor({
       keyId: cachedSecrets.ALPACA_KEY_ID,
       secretKey: cachedSecrets.ALPACA_SECRET_KEY,
-      paper: true,
+      paper: false,
       dryRun,
       runDate,
     });
@@ -218,7 +222,7 @@ exports.handler = async (event = {}) => {
         const alpacaForEmail = new AlpacaSource({
           keyId: cachedSecrets.ALPACA_KEY_ID,
           secretKey: cachedSecrets.ALPACA_SECRET_KEY,
-          paper: true,
+          paper: false,
         });
         const alpacaData = await alpacaForEmail.fetch();
         const positions = alpacaData.positions.holdings;
