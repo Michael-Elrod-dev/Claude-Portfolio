@@ -1,21 +1,26 @@
 'use strict';
 
 const DataSource = require('./DataSource');
+const S3Backend = require('./backends/S3Backend');
 
-const DEFAULT_BASE_URL = 'https://trade-parser-production.up.railway.app';
+// Object key of the snapshot inside the project's S3 bucket (the same bucket
+// that holds memo.json — the Lambda role already reads the whole bucket).
+const DEFAULT_S3_KEY = 'congressional.json';
 const DEFAULT_LOOKBACK_DAYS = 7;
+
+// The exporter runs Mon + Thu, hours before each pipeline run. A snapshot
+// older than this means the export workflow is failing — or GitHub disabled
+// its cron after 60 days without repo activity (it does that). Fail loudly:
+// BriefingAssembler records the error in briefing.errors, which reaches the
+// phone as a briefing_error FCM push. Re-enable the workflow from the
+// Trade-Parser repo's Actions tab.
+const MAX_SNAPSHOT_AGE_DAYS = 8;
 
 // The API reports trade size as a bucket, not an exact dollar amount. Ranks:
 //   1 => $1,001–$15,000, 2 => $15,001–$50,000, 3 => $50,001–$100,000, ...
 // The old scraper filtered on an exact value >= $15,000. minSizeRank = 2
 // reproduces that floor by excluding the smallest ($1K–$15K) bucket.
 const DEFAULT_MIN_SIZE_RANK = 2;
-
-const PAGE_SIZE = 96;
-// Safety cap on pagination. A 7-day filing window is a tiny slice of the full
-// history; this guards against an unbounded walk if the cutoff logic ever
-// fails to terminate (e.g. unexpected sort order).
-const MAX_PAGES = 30;
 
 const MONTHS = {
   Jan: '01', Feb: '02', Mar: '03', Apr: '04', May: '05', Jun: '06',
@@ -26,51 +31,81 @@ const TX_TYPE_MAP = { buy: 'buy', sell: 'sell', exchange: 'exchange' };
 const PARTY_MAP = { D: 'Democrat', R: 'Republican', I: 'Independent' };
 
 /**
- * Pulls recently DISCLOSED congressional stock trades from the trade-parser
- * API (https://trade-parser-production.up.railway.app).
+ * Pulls recently DISCLOSED congressional stock trades from the Trade-Parser
+ * S3 snapshot.
  *
- * This replaces the old Capitol Trades HTML scraper, which broke when the
- * site's page structure changed. The API exposes the same underlying data
- * (it parses the same disclosures) as clean JSON, so this source fetches it
- * directly instead of decoding embedded RSC payloads. Requires an API key
- * sent as the `X-API-Key` header (env: TRADE_PARSER_API_KEY).
+ * History: this began as a Capitol Trades HTML scraper, became a client of
+ * the hosted trade-parser API (https://api.congress-trades.com), and — when
+ * that hosting was retired in July 2026 — moved to this shape: the same
+ * parser now runs as a scheduled GitHub Action in the Trade-Parser repo
+ * (Mon + Thu 08:00 UTC) and drops a JSON snapshot in this project's S3
+ * bucket. The snapshot carries the raw /v1 row shapes the API served
+ * (trades filed in the last ~14 days + the politician directory), so the
+ * normalization below is unchanged from the API era.
  *
- * The lookback window is applied to the FILING date (the API's `published`
- * date), not the transaction date. Under the STOCK Act, members have up to
- * 45 days to disclose a trade, so a 7-day filter on transaction date would
- * miss almost everything. Filing date answers the question we actually care
- * about: "what trades have become public since the last weekly run?"
- *
- * NOTE: the API's `since` query param filters on the TRADED date, so we do
- * not use it. Instead we page through `sort=published&dir=desc` and stop
- * once we cross the filing-date cutoff.
+ * The lookback window is applied to the FILING date, not the transaction
+ * date. Under the STOCK Act, members have up to 45 days to disclose a
+ * trade, so a 7-day filter on transaction date would miss almost
+ * everything. Filing date answers the question we actually care about:
+ * "what trades have become public since the last weekly run?"
  */
 class CongressionalSource extends DataSource {
   constructor({
-    apiKey = process.env.TRADE_PARSER_API_KEY,
-    baseUrl = DEFAULT_BASE_URL,
+    bucket = process.env.MEMO_S3_BUCKET,
+    s3Key = DEFAULT_S3_KEY,
     lookbackDays = DEFAULT_LOOKBACK_DAYS,
     minSizeRank = DEFAULT_MIN_SIZE_RANK,
+    backend = null, // injectable for tests; defaults to S3
   } = {}) {
     super({ name: 'congressional' });
-    this.apiKey = apiKey;
-    this.baseUrl = baseUrl.replace(/\/+$/, '');
+    this.bucket = bucket;
+    this.s3Key = s3Key;
     this.lookbackDays = lookbackDays;
     this.minSizeRank = minSizeRank;
+    this.backend = backend;
   }
 
   async fetch() {
-    if (!this.apiKey) {
+    if (!this.backend) {
+      if (!this.bucket) {
+        throw new Error(
+          'MEMO_S3_BUCKET is not set — cannot read the congressional snapshot.'
+        );
+      }
+      this.backend = new S3Backend({ bucket: this.bucket, key: this.s3Key });
+    }
+
+    const raw = await this.backend.read();
+    if (raw === null) {
       throw new Error(
-        'TRADE_PARSER_API_KEY is not set — cannot fetch congressional trades.'
+        `Congressional snapshot missing at ${this.backend.describe()} — ` +
+          'has the Trade-Parser export workflow ever run?'
+      );
+    }
+
+    let snapshot;
+    try {
+      snapshot = JSON.parse(raw);
+    } catch {
+      throw new Error('Congressional snapshot is not valid JSON.');
+    }
+
+    const ageDays = this._ageDays(snapshot.exportedAt);
+    if (ageDays === null || ageDays > MAX_SNAPSHOT_AGE_DAYS) {
+      throw new Error(
+        `Congressional snapshot is stale (exportedAt=${snapshot.exportedAt}) — ` +
+          'check the Trade-Parser "Congressional export" workflow ' +
+          '(GitHub disables scheduled workflows after ~60 idle days).'
       );
     }
 
     const cutoff = this._cutoffDate();
-    const politicians = await this._fetchPoliticianMap();
-    const rawTrades = await this._fetchTradesUntilCutoff(cutoff);
+    const politicians = new Map();
+    for (const p of snapshot.politicians || []) {
+      if (p && p.id) politicians.set(p.id, p);
+    }
 
-    const trades = rawTrades
+    const trades = (snapshot.trades || [])
       .map((t) => this._normalize(t, politicians))
       .filter((t) => t !== null)
       .filter((t) => t.sizeRank >= this.minSizeRank)
@@ -80,73 +115,19 @@ class CongressionalSource extends DataSource {
     return {
       windowDays: this.lookbackDays,
       minSizeRank: this.minSizeRank,
+      snapshotAt: snapshot.exportedAt || null,
       fetchedAt: new Date().toISOString(),
       count: trades.length,
       trades,
     };
   }
 
-  /**
-   * Page through trades newest-filed first, accumulating until we cross the
-   * cutoff. Because the list is sorted by filing date descending, the first
-   * trade older than the cutoff means every trade after it is older too, so
-   * we can stop early.
-   */
-  async _fetchTradesUntilCutoff(cutoff) {
-    const out = [];
-    for (let page = 0; page < MAX_PAGES; page++) {
-      const offset = page * PAGE_SIZE;
-      const body = await this._getJson(
-        `/v1/trades?sort=published&dir=desc&limit=${PAGE_SIZE}&offset=${offset}`
-      );
-      const batch = Array.isArray(body.data) ? body.data : [];
-      if (batch.length === 0) break;
-
-      let crossedCutoff = false;
-      for (const t of batch) {
-        const filedDate = this._publishedToDate(t.published);
-        if (filedDate && filedDate < cutoff) {
-          crossedCutoff = true;
-          break;
-        }
-        out.push(t);
-      }
-
-      if (crossedCutoff) break;
-      if (offset + batch.length >= (body.total ?? 0)) break;
-    }
-    return out;
-  }
-
-  /**
-   * Fetch all politicians once and index by id, so each trade's politicianId
-   * can be resolved to a name, party, and chamber. Trades carry only the id
-   * (e.g. "S-peters", "H-FL-salazar").
-   */
-  async _fetchPoliticianMap() {
-    const list = await this._getJson('/v1/politicians?limit=1000');
-    const map = new Map();
-    if (Array.isArray(list)) {
-      for (const p of list) {
-        if (p && p.id) map.set(p.id, p);
-      }
-    }
-    return map;
-  }
-
-  async _getJson(path) {
-    const res = await fetch(`${this.baseUrl}${path}`, {
-      headers: { 'X-API-Key': this.apiKey, Accept: 'application/json' },
-    });
-    if (res.status === 401 || res.status === 403) {
-      throw new Error(
-        `trade-parser API returned ${res.status} — check TRADE_PARSER_API_KEY.`
-      );
-    }
-    if (!res.ok) {
-      throw new Error(`trade-parser API returned ${res.status} for ${path}.`);
-    }
-    return res.json();
+  /** Age of the snapshot in (fractional) days, or null if unparsable. */
+  _ageDays(exportedAt) {
+    if (!exportedAt) return null;
+    const ts = Date.parse(exportedAt);
+    if (Number.isNaN(ts)) return null;
+    return (Date.now() - ts) / 86_400_000;
   }
 
   _normalize(t, politicians) {
@@ -200,14 +181,13 @@ class CongressionalSource extends DataSource {
     return `${traded.year}-${mm}-${dd}`;
   }
 
-  /** { label: "11 Jun", year: "2026" } => "2026-06-11". */
+  /** { day: 3, month: "Jul", year: "2026" } => "2026-07-03". (Same shape as
+   *  `traded`; it used to be a "11 Jun" label string in the very old API.) */
   _publishedToDate(published) {
-    if (!published || !published.label) return null;
-    const m = /^(\d{1,2})\s+([A-Za-z]{3})$/.exec(published.label.trim());
-    if (!m) return null;
-    const mm = MONTHS[m[2]];
-    if (!mm || !published.year) return null;
-    return `${published.year}-${mm}-${m[1].padStart(2, '0')}`;
+    if (!published) return null;
+    const mm = MONTHS[published.month];
+    if (!mm || !published.day || !published.year) return null;
+    return `${published.year}-${mm}-${String(published.day).padStart(2, '0')}`;
   }
 
   _cutoffDate() {

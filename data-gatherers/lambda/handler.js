@@ -102,9 +102,10 @@ exports.handler = async (event = {}) => {
         paper: false,
       }),
       memo: new MemoSource({ backend: memoBackend }),
-      congressional: new CongressionalSource({
-        apiKey: cachedSecrets.TRADE_PARSER_API_KEY,
-      }),
+      // Reads the S3 snapshot the Trade-Parser export workflow drops in this
+      // project's bucket (the hosted API was retired July 2026). Bucket comes
+      // from MEMO_S3_BUCKET; no API key involved anymore.
+      congressional: new CongressionalSource(),
       earnings: new EarningsSource({
         apiKey: cachedSecrets.FINNHUB_API_KEY,
         windowDays: 14,
