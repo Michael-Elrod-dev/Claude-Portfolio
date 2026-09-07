@@ -4,6 +4,7 @@
   "description": "",
   "main": "index.js",
   "scripts": {
+    "test": "node --test \"**/*.test.js\"",
     "alpaca": "node run-alpaca.js",
     "earnings": "node run-earnings.js",
     "congressional": "node run-congressional.js",

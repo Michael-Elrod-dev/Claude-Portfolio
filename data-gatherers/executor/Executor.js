@@ -34,7 +34,12 @@ const ORDER_TERMINAL_STATES = new Set([
  *     refresh the account snapshot before placing buys — otherwise
  *     buys race ahead of the sell fills and Alpaca rejects them for
  *     insufficient buying power.
- *   - Below-minimum notionals are skipped.
+ *   - Below-minimum notionals are skipped on buys. Sells are always
+ *     attempted: Alpaca's $1 floor is a buy-entry rule, and enforcing it
+ *     on exits strands positions we can never get out of.
+ *   - Full exits go through DELETE /v2/positions/{symbol} rather than a
+ *     sized order, so Alpaca computes the share count at execution and
+ *     no price movement can turn the exit into an over- or under-request.
  *
  * Trust boundary:
  *   - The Analyst is responsible for the four hard rules (no penny stocks,
@@ -202,8 +207,11 @@ class Executor {
     }
     base.sizing = sizing;
 
-    // 2. Minimum-notional check (only meaningful when sizing in dollars).
-    if (sizing.kind === 'notional' && sizing.value < MIN_NOTIONAL) {
+    // 2. Minimum-notional check. Alpaca enforces its $1 minimum on *buy*
+    //    entry orders; applying it to sells is what stranded JPM's $0.03
+    //    stub, skipped every run since 8/24 with no way out. Exits are
+    //    attempted and Alpaca is left to decide.
+    if (rec.action === 'buy' && sizing.kind === 'notional' && sizing.value < MIN_NOTIONAL) {
       return {
         ...base,
         status: 'skipped',
@@ -211,15 +219,25 @@ class Executor {
       };
     }
 
-    // 3. Build the order payload.
+    // 3. Full exit — DELETE /v2/positions/{symbol}. Alpaca resolves the
+    //    exact share count server-side at execution, which is the entire
+    //    point: any quantity we compute here can drift before the fill.
+    if (sizing.kind === 'close') {
+      if (this.dryRun) {
+        return { ...base, status: 'dry_run', reason: 'dryRun=true (full exit)' };
+      }
+      return this._closePosition(rec, base);
+    }
+
+    // 4. Build the order payload.
     const orderBody = this._buildOrderBody(rec, sizing);
 
-    // 4. Dry run? Stop here.
+    // 5. Dry run? Stop here.
     if (this.dryRun) {
       return { ...base, status: 'dry_run', reason: 'dryRun=true' };
     }
 
-    // 5. Live submit.
+    // 6. Live submit.
     try {
       const order = await this.client.createOrder(orderBody);
       return { ...base, status: 'executed', orderId: String(order.id) };
@@ -231,6 +249,44 @@ class Executor {
           ...base,
           status: 'already_submitted',
           reason: 'order already placed in a prior run today (same client_order_id)',
+        };
+      }
+      return { ...base, status: 'failed', reason: extractAlpacaError(err) };
+    }
+  }
+
+  /**
+   * Liquidate the whole position via DELETE /v2/positions/{symbol}.
+   *
+   * Unlike createOrder this carries no client_order_id, so the duplicate
+   * guard that protects re-runs does not apply. The position check in
+   * resolveSizing covers it instead: once the exit fills there is no
+   * position left, and a repeat run resolves to "no current position"
+   * and skips. The asymmetry is deliberate — a double-submitted buy
+   * spends cash, a double-submitted exit just finds nothing to sell.
+   */
+  async _closePosition(rec, base) {
+    try {
+      const order = await this.client.closePosition(rec.ticker);
+      return { ...base, status: 'executed', orderId: order?.id ? String(order.id) : null };
+    } catch (err) {
+      if (isPositionNotFound(err)) {
+        return {
+          ...base,
+          status: 'already_submitted',
+          reason: 'position already closed before this order was placed',
+        };
+      }
+      // A position too small for Alpaca to trade is a standing condition,
+      // not a failure worth retrying — report it as a skip so it stops
+      // inflating the failure count on every run.
+      if (isMinimumSizeRejection(err)) {
+        const value = Number(base.sizing?.value);
+        const held = Number.isFinite(value) ? `${value} sh` : 'position';
+        return {
+          ...base,
+          status: 'skipped',
+          reason: `${held} of ${rec.ticker} is below Alpaca's minimum tradable size and cannot be liquidated through the API (${extractAlpacaError(err)})`,
         };
       }
       return { ...base, status: 'failed', reason: extractAlpacaError(err) };
@@ -262,6 +318,32 @@ class Executor {
     const date = this.runDate.replace(/-/g, '');
     return `cp-${date}-${rec.ticker.toUpperCase()}-${rec.action}`;
   }
+}
+
+function errorText(err) {
+  const data = err?.response?.data;
+  if (data) return typeof data === 'string' ? data : (data.message || JSON.stringify(data));
+  return err?.message || String(err);
+}
+
+function isPositionNotFound(err) {
+  if (err?.response?.status === 404) return true;
+  const msg = errorText(err).toLowerCase();
+  return msg.includes('position does not exist') || msg.includes('position not found');
+}
+
+/**
+ * Alpaca rejects sub-minimum orders with a few different wordings
+ * depending on the path taken; match on the distinctive phrases rather
+ * than the status code, which it shares with ordinary rejections.
+ */
+function isMinimumSizeRejection(err) {
+  const msg = errorText(err).toLowerCase();
+  return (
+    msg.includes('minimum pricing criteria') ||
+    msg.includes('notional increment') ||
+    (msg.includes('minimum') && (msg.includes('notional') || msg.includes('qty')))
+  );
 }
 
 function isDuplicateClientOrderId(err) {
