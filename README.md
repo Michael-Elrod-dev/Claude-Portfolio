@@ -516,7 +516,7 @@ trade recommendations. This is the brain of the pipeline.
 | Thinking | `{type: "adaptive"}` | Opus 5.5's default when omitted — `disabled` and `budget_tokens` both 400 at every effort level |
 | Effort | `xhigh` | Must stay explicit: Opus 5.5 defaults to `medium`, a level below Opus 5's `high`, so omitting it silently shallows the reasoning |
 | Max tokens | 64,000 | A ceiling, not a spend. ~20k observed output, so the headroom is free and stops a long run truncating mid-JSON |
-| Web search | `web_search_20260209`, `max_uses: 20` | Caps catastrophic loops while leaving room for genuine research. Observed usage is 10–13; exhausting the budget silently ends the research with no error, so 15 was too close |
+| Web search | `web_search_20260209`, `max_uses: 15` | Deliberately not raised. Observed usage is 10–13 and exhausting the budget silently ends the research, but searches cost ~28s each and the binding constraint is the 900s Lambda timeout (an AWS hard ceiling). 20 searches projects to ~810s of a 900s window; more headroom needs the Analyst split into its own invocation |
 | Streaming | Yes (`stream()` + `finalMessage()`) | Required since `max_tokens > 16k` would risk SDK HTTP timeouts |
 | Prompt cache | System prompt as ephemeral text block | System prompt is stable across runs, so weekly runs only pay full price for the user prompt + tool definitions |
 
