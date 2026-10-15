@@ -4,6 +4,7 @@ const Anthropic = require('@anthropic-ai/sdk').default;
 const SYSTEM_PROMPT = require('../prompts/memoUpdaterSystemPrompt');
 const buildUserPrompt = require('../prompts/buildMemoUpdaterUserPrompt');
 const { extractJsonFromMessage } = require('./parseResponse');
+const { withRefusalFallback, assertNotRefused, servedBy } = require('./claudeRequest');
 
 const DEFAULT_MODEL = 'claude-opus-5-5';
 const DEFAULT_MAX_TOKENS = 32_000;
@@ -29,7 +30,8 @@ const DEFAULT_EFFORT = 'high';
  *     removing this line would silently lower it.
  *
  * Same shape otherwise: streaming + finalMessage(), system prompt cached
- * as an ephemeral block, JSON extraction from the last text block.
+ * as an ephemeral block, JSON extraction from the last text block, and the
+ * same claude-opus-5 refusal fallback (claudeRequest.js).
  */
 class MemoUpdater {
   constructor({
@@ -52,7 +54,7 @@ class MemoUpdater {
 
     const userPrompt = buildUserPrompt({ priorMemo, briefing, recommendations });
 
-    const stream = this.client.messages.stream({
+    const stream = this.client.beta.messages.stream(withRefusalFallback({
       model: this.model,
       max_tokens: this.maxTokens,
       thinking: { type: 'adaptive' },
@@ -65,9 +67,10 @@ class MemoUpdater {
         },
       ],
       messages: [{ role: 'user', content: userPrompt }],
-    });
+    }));
 
     const message = await stream.finalMessage();
+    assertNotRefused(message, 'MemoUpdater');
     if (message.stop_reason === 'max_tokens') {
       throw new Error(
         `MemoUpdater hit max_tokens cap (${this.maxTokens}) — response was truncated. ` +
@@ -75,11 +78,14 @@ class MemoUpdater {
       );
     }
     const newMemo = extractJsonFromMessage(message);
+    const served = servedBy(message, this.model);
 
     return {
       memo: newMemo,
       meta: {
-        model: this.model,
+        model: served.model,
+        requestedModel: this.model,
+        fellBack: served.fellBack,
         stopReason: message.stop_reason,
         usage: {
           inputTokens: message.usage.input_tokens,

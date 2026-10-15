@@ -4,6 +4,7 @@ const Anthropic = require('@anthropic-ai/sdk').default;
 const SYSTEM_PROMPT = require('../prompts/analystSystemPrompt');
 const buildUserPrompt = require('../prompts/buildAnalystUserPrompt');
 const { parseRecommendations } = require('./parseResponse');
+const { withRefusalFallback, assertNotRefused, servedBy } = require('./claudeRequest');
 
 const DEFAULT_MODEL = 'claude-opus-5-5';
 const DEFAULT_MAX_TOKENS = 64_000;
@@ -34,6 +35,9 @@ const DEFAULT_EFFORT = 'xhigh';
  *     splitting the Analyst into its own invocation, not a bigger budget.
  *   - prompt cache: system prompt is wrapped as an ephemeral text block,
  *     so weekly runs only pay full price for the user prompt and tools
+ *   - refusal fallback: if a safety classifier declines, the API re-runs
+ *     the request on claude-opus-5 within the same call (see
+ *     claudeRequest.js). Goes through client.beta.messages for that reason.
  *
  * max_tokens is 64k against ~20k of observed output — it is a ceiling,
  * not a spend, so the headroom is free and protects against a long run
@@ -60,7 +64,7 @@ class Analyst {
   async analyze(briefing) {
     const userPrompt = buildUserPrompt(briefing);
 
-    const stream = this.client.messages.stream({
+    const stream = this.client.beta.messages.stream(withRefusalFallback({
       model: this.model,
       max_tokens: this.maxTokens,
       thinking: { type: 'adaptive' },
@@ -80,15 +84,21 @@ class Analyst {
         },
       ],
       messages: [{ role: 'user', content: userPrompt }],
-    });
+    }));
 
     const message = await stream.finalMessage();
+    // Before reading content: a refusal's content is empty or partial.
+    assertNotRefused(message, 'Analyst');
     const recommendations = parseRecommendations(message);
+    const served = servedBy(message, this.model);
 
     return {
       recommendations,
       meta: {
-        model: this.model,
+        // The model that actually answered — claude-opus-5 if the fallback ran.
+        model: served.model,
+        requestedModel: this.model,
+        fellBack: served.fellBack,
         stopReason: message.stop_reason,
         webSearchesUsed: message.content.filter(
           (b) => b.type === 'server_tool_use' && b.name === 'web_search'

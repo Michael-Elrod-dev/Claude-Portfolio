@@ -518,6 +518,7 @@ trade recommendations. This is the brain of the pipeline.
 | Max tokens | 64,000 | A ceiling, not a spend. ~20k observed output, so the headroom is free and stops a long run truncating mid-JSON |
 | Web search | `web_search_20260209`, `max_uses: 15` | Deliberately not raised. Observed usage is 10–13 and exhausting the budget silently ends the research, but searches cost ~28s each and the binding constraint is the 900s Lambda timeout (an AWS hard ceiling). 20 searches projects to ~810s of a 900s window; more headroom needs the Analyst split into its own invocation |
 | Streaming | Yes (`stream()` + `finalMessage()`) | Required since `max_tokens > 16k` would risk SDK HTTP timeouts |
+| Refusal fallback | `fallbacks: [{model: "claude-opus-5"}]`, beta `server-side-fallback-2026-06-01` | If a safety classifier declines, the API re-runs the request on Opus 5 in the same call. Applies to the MemoUpdater too. If the whole chain declines, the run stops before the executor with a `RefusalError` — no orders. The serving model and a `fellBack` flag are archived in `analystMeta` (see `analyst/claudeRequest.js`) |
 | Prompt cache | System prompt as ephemeral text block | System prompt is stable across runs, so weekly runs only pay full price for the user prompt + tool definitions |
 
 **Notes / considerations:**

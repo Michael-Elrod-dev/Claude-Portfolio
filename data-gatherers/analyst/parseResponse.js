@@ -19,6 +19,13 @@
  *   4. Walk backwards through all text blocks in case the last block is
  *      a reasoning epilogue rather than the answer.
  *
+ * Refusal fallback: if a safety classifier declines MID-STREAM, the API
+ * keeps the partial answer, inserts a `fallback` content block, and the
+ * fallback model continues from the partial's text. The final JSON can then
+ * be split across two text blocks either side of that marker, so right
+ * after the last block is tried, the two halves are stitched and tried
+ * together. `fallback` blocks themselves are not text and are ignored.
+ *
  * Generic enough to use for any "Claude returns a JSON object" prompt —
  * shared by both Analyst and MemoUpdater.
  */
@@ -28,10 +35,15 @@ function extractJsonFromMessage(message) {
     throw new Error('No text blocks in Claude response');
   }
 
-  // Walk from last to first — most of the time the answer is in the last
-  // block, but we fall back through earlier blocks if needed.
-  for (let i = textBlocks.length - 1; i >= 0; i--) {
-    const parsed = tryParseJson(textBlocks[i].text);
+  // Candidates in priority order: the last block, then the two halves of
+  // an answer split by a mid-stream fallback, then every earlier block.
+  const candidates = [textBlocks[textBlocks.length - 1].text];
+  const stitched = stitchAcrossFallback(message.content);
+  if (stitched !== null) candidates.push(stitched);
+  for (let i = textBlocks.length - 2; i >= 0; i--) candidates.push(textBlocks[i].text);
+
+  for (const text of candidates) {
+    const parsed = tryParseJson(text);
     if (parsed !== null) return parsed;
   }
 
@@ -40,6 +52,26 @@ function extractJsonFromMessage(message) {
     `Failed to find valid JSON in Claude response.\n` +
       `--- Last text block (first 600 chars) ---\n${lastText.slice(0, 600)}`
   );
+}
+
+/**
+ * Join the last text block BEFORE the final `fallback` marker with the first
+ * text block AFTER it — the declined model's partial and the fallback
+ * model's continuation. Null when there is no marker or no text after it.
+ */
+function stitchAcrossFallback(content) {
+  let marker = -1;
+  for (let i = 0; i < content.length; i++) {
+    if (content[i].type === 'fallback') marker = i;
+  }
+  if (marker === -1) return null;
+  let before = '';
+  for (let i = marker - 1; i >= 0; i--) {
+    if (content[i].type === 'text') { before = content[i].text; break; }
+  }
+  const after = content.slice(marker + 1).find((b) => b.type === 'text');
+  if (!after) return null;
+  return before + after.text;
 }
 
 /**

@@ -136,7 +136,8 @@ exports.handler = async (event = {}) => {
     const analyst = new Analyst({ apiKey: cachedSecrets.ANTHROPIC_API_KEY });
     const analysis = await analyst.analyze(briefing);
     log(
-      `Analyst done. Stop: ${analysis.meta.stopReason}, ` +
+      `Analyst done (${analysis.meta.model}${analysis.meta.fellBack ? ', FELL BACK' : ''}). ` +
+        `Stop: ${analysis.meta.stopReason}, ` +
         `web searches: ${analysis.meta.webSearchesUsed}, ` +
         `output tokens: ${analysis.meta.usage.outputTokens.toLocaleString()}`
     );
@@ -150,7 +151,8 @@ exports.handler = async (event = {}) => {
       recommendations: analysis.recommendations,
     });
     log(
-      `MemoUpdater done. Stop: ${memoResult.meta.stopReason}, ` +
+      `MemoUpdater done (${memoResult.meta.model}${memoResult.meta.fellBack ? ', FELL BACK' : ''}). ` +
+        `Stop: ${memoResult.meta.stopReason}, ` +
         `output tokens: ${memoResult.meta.usage.outputTokens.toLocaleString()}`
     );
 
@@ -194,6 +196,8 @@ exports.handler = async (event = {}) => {
       summary: analysis.recommendations?.summary || null,
       analystMeta: {
         model: analysis.meta.model,
+        fellBack: analysis.meta.fellBack ?? false,
+        memoModel: memoResult.meta.model,
         stopReason: analysis.meta.stopReason,
         webSearchesUsed: analysis.meta.webSearchesUsed,
         inputTokens: analysis.meta.usage?.inputTokens ?? null,
