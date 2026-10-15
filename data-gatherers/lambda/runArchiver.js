@@ -36,12 +36,11 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({ region: REGION }));
  * @param {string} record.runDate - "YYYY-MM-DD"
  * @param {string} record.timestamp - ISO timestamp the run finished
  * @param {number} record.durationSec
- * @param {boolean} record.dryRun
  * @param {boolean} record.forced
  * @param {string} record.summary - Analyst's prose summary
  * @param {object} record.analystMeta - { model, stopReason, webSearchesUsed, inputTokens, outputTokens, costUsd }
  * @param {Array}  record.recommendations - enriched with status, orderId, sizing
- * @param {object} record.executor - tally { total, executed, queuedForReview, skipped, failed, dryRun, alreadySubmitted }
+ * @param {object} record.executor - tally { total, executed, skipped, failed, alreadySubmitted }
  * @param {Array}  record.briefingErrors
  * @param {object} record.briefing - full briefing JSON for the inspector
  */

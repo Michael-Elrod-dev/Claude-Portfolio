@@ -1,6 +1,6 @@
 'use strict';
 
-const Alpaca = require('@alpacahq/alpaca-trade-api');
+const { createLiveClient } = require('../alpacaClient');
 const { resolveSizing } = require('./sizingResolver');
 
 const MIN_NOTIONAL = 1.0;
@@ -21,8 +21,13 @@ const ORDER_TERMINAL_STATES = new Set([
  * Takes the Analyst's recommendations and submits the corresponding
  * orders to Alpaca, with safety rails.
  *
+ * This executor always submits real orders to the live brokerage account.
+ * There is no dry-run mode and no paper account: every recommendation it
+ * is handed is placed. The kill switch lives upstream — SSM
+ * `claude-portfolio-active` plus the two EventBridge rules decide whether
+ * a run happens at all (see lambda/handler.js).
+ *
  * Safety design:
- *   - dryRun is true by default. Live trading requires explicit opt-in.
  *   - All recommendations are executed regardless of confidence level.
  *     Confidence is informational only — Claude uses it to express
  *     conviction, but the executor trusts all of Claude's decisions.
@@ -54,8 +59,6 @@ class Executor {
   constructor({
     keyId,
     secretKey,
-    paper = true,
-    dryRun = true,
     runDate = null,
     sellSettlePollMs = SELL_SETTLE_POLL_MS,
     sellSettleTimeoutMs = SELL_SETTLE_TIMEOUT_MS,
@@ -63,8 +66,7 @@ class Executor {
     if (!keyId || !secretKey) {
       throw new Error('Executor requires keyId and secretKey');
     }
-    this.client = new Alpaca({ keyId, secretKey, paper });
-    this.dryRun = dryRun;
+    this.client = createLiveClient({ keyId, secretKey });
     this.runDate = runDate || new Date().toISOString().slice(0, 10);
     this.sellSettlePollMs = sellSettlePollMs;
     this.sellSettleTimeoutMs = sellSettleTimeoutMs;
@@ -76,10 +78,9 @@ class Executor {
     if (recs.length === 0) {
       return {
         asOf: new Date().toISOString(),
-        dryRun: this.dryRun,
         runDate: this.runDate,
         results: [],
-        summary: { total: 0, executed: 0, skipped: 0, failed: 0, dryRun: 0, alreadySubmitted: 0 },
+        summary: { total: 0, executed: 0, skipped: 0, failed: 0, alreadySubmitted: 0 },
       };
     }
 
@@ -95,19 +96,19 @@ class Executor {
       sellResults.push(await this._processOne(rec, snapshot));
     }
 
-    // Wait for live sell orders to reach a terminal state before placing
+    // Wait for sell orders to reach a terminal state before placing
     // buys. createOrder returns when Alpaca *accepts* the order, but
     // buying power isn't credited until it *fills* — without this gate,
     // buys race ahead and get rejected for insufficient buying power.
     // Skip the wait when there are no buys depending on the proceeds.
     let settleNotice = null;
-    const liveSellIds = sellResults
+    const submittedSellIds = sellResults
       .filter((r) => r.status === 'executed' && r.orderId)
       .map((r) => r.orderId);
-    if (liveSellIds.length > 0 && buyRecs.length > 0) {
-      const { unsettled } = await this._waitForOrders(liveSellIds);
+    if (submittedSellIds.length > 0 && buyRecs.length > 0) {
+      const { unsettled } = await this._waitForOrders(submittedSellIds);
       if (unsettled.length > 0) {
-        settleNotice = `${unsettled.length} of ${liveSellIds.length} sell order(s) did not reach a terminal state within ${this.sellSettleTimeoutMs}ms; buys submitted against whatever buying power Alpaca reports.`;
+        settleNotice = `${unsettled.length} of ${submittedSellIds.length} sell order(s) did not reach a terminal state within ${this.sellSettleTimeoutMs}ms; buys submitted against whatever buying power Alpaca reports.`;
       }
       // Refresh snapshot so buy sizing reflects post-sell buying power
       // and updated position values.
@@ -124,7 +125,6 @@ class Executor {
     const summary = summarize(results);
     return {
       asOf: new Date().toISOString(),
-      dryRun: this.dryRun,
       runDate: this.runDate,
       summary,
       results,
@@ -223,21 +223,13 @@ class Executor {
     //    exact share count server-side at execution, which is the entire
     //    point: any quantity we compute here can drift before the fill.
     if (sizing.kind === 'close') {
-      if (this.dryRun) {
-        return { ...base, status: 'dry_run', reason: 'dryRun=true (full exit)' };
-      }
       return this._closePosition(rec, base);
     }
 
     // 4. Build the order payload.
     const orderBody = this._buildOrderBody(rec, sizing);
 
-    // 5. Dry run? Stop here.
-    if (this.dryRun) {
-      return { ...base, status: 'dry_run', reason: 'dryRun=true' };
-    }
-
-    // 6. Live submit.
+    // 5. Submit.
     try {
       const order = await this.client.createOrder(orderBody);
       return { ...base, status: 'executed', orderId: String(order.id) };
@@ -375,12 +367,11 @@ function sleep(ms) {
 }
 
 function summarize(results) {
-  const tally = { total: results.length, executed: 0, skipped: 0, failed: 0, dryRun: 0, alreadySubmitted: 0 };
+  const tally = { total: results.length, executed: 0, skipped: 0, failed: 0, alreadySubmitted: 0 };
   for (const r of results) {
     if (r.status === 'executed') tally.executed++;
     else if (r.status === 'skipped') tally.skipped++;
     else if (r.status === 'failed') tally.failed++;
-    else if (r.status === 'dry_run') tally.dryRun++;
     else if (r.status === 'already_submitted') tally.alreadySubmitted++;
   }
   return tally;

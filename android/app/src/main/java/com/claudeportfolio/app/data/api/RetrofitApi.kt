@@ -42,9 +42,6 @@ class RetrofitApi(private val service: PortfolioService) : PortfolioApi {
     override suspend fun setFlagActive(value: Boolean): Flag =
         service.setFlagActive(FlagBody(value))
 
-    override suspend fun getFlagLive(): Flag = service.getFlagLive()
-    override suspend fun setFlagLive(value: Boolean): Flag =
-        service.setFlagLive(FlagBody(value))
 
     override suspend fun runForce() {
         service.runForce()

@@ -40,7 +40,6 @@ async function main() {
     alpaca: new AlpacaSource({
       keyId: process.env.ALPACA_KEY_ID,
       secretKey: process.env.ALPACA_SECRET_KEY,
-      paper: true,
     }),
     memo: new MemoSource({ backend: memoBackend }),
     congressional: new CongressionalSource(),

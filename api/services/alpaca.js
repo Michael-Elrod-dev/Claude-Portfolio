@@ -5,13 +5,22 @@
  *
  * The pipeline already has a comprehensive AlpacaSource for the briefing,
  * but the API needs slightly different shapes (Android-friendly camelCase,
- * weekPl / sinceInception computed from the portfolio-history endpoint,
- * per-position `opened` joined from order history, and per-position
- * `thesis` joined from the memo).
+ * windowed P/L computed from the portfolio-history endpoint, per-position
+ * `opened` joined from order history, and per-position `thesis` joined
+ * from the memo).
  */
 
 const Alpaca = require('@alpacahq/alpaca-trade-api');
 const { loadApiKeys } = require('./secrets');
+
+/**
+ * The live brokerage host. This system has one real-money account and no
+ * paper account, so the target is pinned here rather than derived from a
+ * `paper` flag. Passing baseUrl explicitly also beats the SDK's
+ * APCA_API_BASE_URL env fallback, which could otherwise redirect reads to
+ * a different account than the pipeline trades on.
+ */
+const LIVE_BASE_URL = 'https://api.alpaca.markets';
 
 let cachedClient = null;
 
@@ -21,9 +30,7 @@ async function getClient() {
   cachedClient = new Alpaca({
     keyId: keys.ALPACA_KEY_ID,
     secretKey: keys.ALPACA_SECRET_KEY,
-    // Live brokerage account — must match the pipeline lambda's setting so
-    // the Android app reads back the same account the bot trades on.
-    paper: false,
+    baseUrl: LIVE_BASE_URL,
   });
   return cachedClient;
 }
@@ -53,10 +60,21 @@ function _windowOrNull(window, allTime) {
   return window;
 }
 
-async function periodChange(client, period) {
+/**
+ * January 1st of the current year, as YYYY-MM-DD, for the year-to-date
+ * window. Uses UTC so the boundary doesn't wobble with the server's zone.
+ */
+function startOfYear() {
+  return `${new Date().getUTCFullYear()}-01-01`;
+}
+
+/**
+ * @param {object} window  either { period: '1W' } or { date_start: 'YYYY-MM-DD' }
+ */
+async function periodChange(client, window) {
   try {
     const hist = await client.getPortfolioHistory({
-      period,
+      ...window,
       timeframe: '1D',
     });
     // Filter out null AND zero values. Zero shows up at the start of a
@@ -72,7 +90,8 @@ async function periodChange(client, period) {
     const plPct = pl / first;
     return { first, last, pl, plPct };
   } catch (err) {
-    console.warn(`[alpaca] portfolio history (${period}) failed: ${err.message}`);
+    const label = window.period || `since ${window.date_start}`;
+    console.warn(`[alpaca] portfolio history (${label}) failed: ${err.message}`);
     return null;
   }
 }
@@ -119,12 +138,26 @@ async function loadOpenedDates(client) {
 async function buildPortfolio({ memo } = {}) {
   const client = await getClient();
 
-  const [account, rawPositions, monthChange, yearChange, allTime, openedDates] = await Promise.all([
+  const [
+    account,
+    rawPositions,
+    weekChange,
+    monthChange,
+    ytdChange,
+    allTime,
+    openedDates,
+  ] = await Promise.all([
     client.getAccount(),
     client.getPositions(),
-    periodChange(client, '1M'),
-    periodChange(client, '1A'),
-    periodChange(client, 'all'),
+    periodChange(client, { period: '1W' }),
+    periodChange(client, { period: '1M' }),
+    // "Year" means year-to-date (Jan 1 → now), not a trailing 12 months.
+    // A trailing-1A window on an account younger than a year collapses
+    // into all-time and gets suppressed by _windowOrNull; YTD at least
+    // becomes a distinct, meaningful number as soon as the account has
+    // lived through a New Year.
+    periodChange(client, { date_start: startOfYear() }),
+    periodChange(client, { period: 'all' }),
     loadOpenedDates(client),
   ]);
 
@@ -188,12 +221,19 @@ async function buildPortfolio({ memo } = {}) {
       // the account is younger than the requested window, periodChange
       // returns the same first equity as the all-time series (since
       // the zero-pre-funding values get filtered out in either case),
-      // and we'd just be showing the same number 3 times. Null instead
+      // and we'd just be showing the same number twice. Null instead
       // → UI renders "—" so it's obvious the window is too short.
+      //
+      // Current state of this account (funded 2026-04-13): week and month
+      // populate; yearPl is null because a year-to-date window still
+      // reaches back before funding, so it equals totalPl. It starts
+      // returning a distinct number on 2027-01-01.
+      weekPl: _windowOrNull(weekChange, allTime)?.pl ?? null,
+      weekPlPct: _windowOrNull(weekChange, allTime)?.plPct ?? null,
       monthPl: _windowOrNull(monthChange, allTime)?.pl ?? null,
       monthPlPct: _windowOrNull(monthChange, allTime)?.plPct ?? null,
-      yearPl: _windowOrNull(yearChange, allTime)?.pl ?? null,
-      yearPlPct: _windowOrNull(yearChange, allTime)?.plPct ?? null,
+      yearPl: _windowOrNull(ytdChange, allTime)?.pl ?? null,
+      yearPlPct: _windowOrNull(ytdChange, allTime)?.plPct ?? null,
       totalPl: allTime?.pl ?? null,
       totalPlPct: allTime?.plPct ?? null,
     },

@@ -25,7 +25,6 @@ function compactRow(item) {
     runDate: item.runDate,
     timestamp: item.timestamp,
     durationSec: item.durationSec,
-    dryRun: item.dryRun,
     forced: item.forced,
     summary: item.summary,
     recCount: Array.isArray(item.recommendations) ? item.recommendations.length : 0,

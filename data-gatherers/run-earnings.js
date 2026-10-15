@@ -11,7 +11,6 @@ async function main() {
   const alpaca = new AlpacaSource({
     keyId: process.env.ALPACA_KEY_ID,
     secretKey: process.env.ALPACA_SECRET_KEY,
-    paper: true,
   });
   const portfolio = await alpaca.fetch();
   const symbols = portfolio.positions.holdings.map((h) => h.symbol);

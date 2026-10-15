@@ -35,7 +35,6 @@ POLICY_NAME="claude-portfolio-lambda-policy"
 S3_BUCKET="claude-portfolio-${ACCOUNT_ID}"
 SECRET_NAME="claude-portfolio/api-keys"
 ACTIVE_PARAM="claude-portfolio-active"
-LIVE_PARAM="claude-portfolio-live"
 RUNS_TABLE="claude-portfolio-runs"
 ACTIVITY_TABLE="claude-portfolio-activity"
 DEVICES_TABLE="claude-portfolio-devices"
@@ -163,21 +162,6 @@ aws ssm get-parameter --name "${ACTIVE_PARAM}" --region "${REGION}" > /dev/null 
 
 echo "  Bot starts INACTIVE on first deploy. Run 'bash infra/toggle.sh on' to enable."
 
-# ── 4b. SSM live-trading mirror ───────────────────────────────────────────
-# The Android app flips this param to enable/disable real order placement.
-# The handler reads it at runtime, falling back to the EXECUTOR_LIVE env var
-# if absent. Defaulting to "false" matches the dry-run-by-default convention.
-echo "▸ Creating SSM parameter ${LIVE_PARAM} = false..."
-
-aws ssm get-parameter --name "${LIVE_PARAM}" --region "${REGION}" > /dev/null 2>&1 \
-  && echo "  ${LIVE_PARAM} already exists — leaving value unchanged." \
-  || aws ssm put-parameter \
-    --name "${LIVE_PARAM}" \
-    --value "false" \
-    --type String \
-    --region "${REGION}" \
-    > /dev/null
-
 # ── 4c. DynamoDB tables (run archive, activity log, FCM device tokens) ────
 echo "▸ Creating DynamoDB tables..."
 
@@ -250,9 +234,9 @@ aws lambda create-function \
   --role "${ROLE_ARN}" \
   --handler "lambda/handler.handler" \
   --zip-file "fileb://${TMPDIR}/placeholder.zip" \
-  --timeout 900 \
+  --timeout 1200 \
   --memory-size 512 \
-  --environment "Variables={MEMO_S3_BUCKET=${S3_BUCKET},MEMO_S3_KEY=memo.json,EXECUTOR_LIVE=false,SECRET_NAME=${SECRET_NAME}}" \
+  --environment "Variables={MEMO_S3_BUCKET=${S3_BUCKET},MEMO_S3_KEY=memo.json,SECRET_NAME=${SECRET_NAME}}" \
   --region "${REGION}" \
   2>/dev/null && echo "  Lambda function created." \
 || echo "  Lambda function already exists — skipping create. Run infra/deploy.sh to update code."

@@ -91,7 +91,7 @@ fun RootScreen(initialTab: Tab? = null) {
         PortfolioAppBar(
             eyebrow = activeEyebrow,
             title = barTitle,
-            statusLabel = if (isLive) "Live · paper acct" else "Not connected",
+            statusLabel = if (isLive) "Live" else "Not connected",
             statusOk = isLive,
         )
 

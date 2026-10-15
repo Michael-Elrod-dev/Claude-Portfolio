@@ -32,8 +32,6 @@ object NotConnectedApi : PortfolioApi {
     override suspend fun getActivity(limit: Int): List<ActivityEvent> = throw NotConnectedException()
     override suspend fun getFlagActive(): Flag = throw NotConnectedException()
     override suspend fun setFlagActive(value: Boolean): Flag = throw NotConnectedException()
-    override suspend fun getFlagLive(): Flag = throw NotConnectedException()
-    override suspend fun setFlagLive(value: Boolean): Flag = throw NotConnectedException()
     override suspend fun runForce() = throw NotConnectedException()
     override suspend fun registerDevice(token: String, platform: String, appVersion: String?) =
         throw NotConnectedException()

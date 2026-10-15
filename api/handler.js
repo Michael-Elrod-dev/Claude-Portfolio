@@ -45,8 +45,6 @@ const ROUTES = [
   ['GET',  /^\/activity$/,                    activity.getActivity],
   ['GET',  /^\/flags\/active$/,               flags.getActive],
   ['PUT',  /^\/flags\/active$/,               flags.putActive],
-  ['GET',  /^\/flags\/live$/,                 flags.getLive],
-  ['PUT',  /^\/flags\/live$/,                 flags.putLive],
   ['POST', /^\/devices$/,                     devices.postDevice],
   ['POST', /^\/run\/force$/,                  runForce.postRunForce],
 ];

@@ -82,12 +82,10 @@ fun SettingsScreen() {
     val type = LocalPortfolioTypography.current
 
     val activeFlag = remember { mutableStateOf(false) }
-    val liveFlag   = remember { mutableStateOf(false) }
     val activity   = remember { mutableStateOf<List<ActivityEvent>>(emptyList()) }
     val briefing   = remember { mutableStateOf<BriefingPayload?>(null) }
     var briefingExpanded by remember { mutableStateOf(false) }
 
-    var pendingLiveOn by remember { mutableStateOf(false) }
     var pendingForceRun by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
@@ -97,7 +95,7 @@ fun SettingsScreen() {
     var isRefreshing by remember { mutableStateOf(false) }
 
     LaunchedEffect(Unit) {
-        eyebrows["Settings"] = "BOT · PAPER ACCOUNT"
+        eyebrows["Settings"] = "BOT · LIVE ACCOUNT"
     }
     LaunchedEffect(api, tick, refreshKey) {
         // API calls may throw NotConnectedException when the user hasn't
@@ -106,7 +104,6 @@ fun SettingsScreen() {
         // the Connection form). Each call is wrapped so a failure on
         // one doesn't poison the others.
         runCatching { activeFlag.value = api.getFlagActive().value }
-        runCatching { liveFlag.value = api.getFlagLive().value }
         runCatching { activity.value = api.getActivity(limit = 30) }
             .onFailure { activity.value = emptyList() }
         runCatching { briefing.value = api.getBriefingLatest() }
@@ -139,7 +136,7 @@ fun SettingsScreen() {
         SectionLabel("BOT CONTROLS")
         ToggleRow(
             title = "Active flag",
-            hint = "SSM /claude-portfolio-active",
+            hint = "SSM /claude-portfolio-active · the only trading gate",
             checked = activeFlag.value,
             onChange = { newValue ->
                 scope.launch {
@@ -148,25 +145,9 @@ fun SettingsScreen() {
             },
             danger = false,
         )
-        ToggleRow(
-            title = "Live trading",
-            hint = if (liveFlag.value) "EXECUTOR_LIVE=true · paper acct"
-                   else "Dry-run: orders not placed",
-            checked = liveFlag.value,
-            onChange = { newValue ->
-                if (newValue) {
-                    pendingLiveOn = true       // ask for confirmation first
-                } else {
-                    scope.launch {
-                        liveFlag.value = api.setFlagLive(false).value
-                    }
-                }
-            },
-            danger = true,
-        )
         ButtonRow(
             title = "Force run now",
-            hint = "Bypasses active flag",
+            hint = "Bypasses active flag · places real orders",
             buttonLabel = "Run",
             onClick = { pendingForceRun = true },
         )
@@ -200,34 +181,11 @@ fun SettingsScreen() {
     }   // end PullToRefreshBox
 
     // ── Confirmations ────────────────────────────────────────────────
-    if (pendingLiveOn) {
-        AlertDialog(
-            onDismissRequest = { pendingLiveOn = false },
-            title = { Text("Enable live trading?") },
-            text = {
-                Text("Orders will be sent to your Alpaca paper account on the next run.")
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    pendingLiveOn = false
-                    scope.launch {
-                        liveFlag.value = api.setFlagLive(true).value
-                    }
-                }) { Text("Enable") }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingLiveOn = false }) { Text("Cancel") }
-            },
-            containerColor = PortfolioColors.Surface,
-            titleContentColor = PortfolioColors.Fg,
-            textContentColor = PortfolioColors.Dim,
-        )
-    }
     if (pendingForceRun) {
         AlertDialog(
             onDismissRequest = { pendingForceRun = false },
             title = { Text("Run pipeline now?") },
-            text = { Text("Bypasses active flag. Pipeline takes 3–8 minutes.") },
+            text = { Text("Bypasses the active flag and places REAL orders on your live account. Pipeline takes 3–8 minutes.") },
             confirmButton = {
                 TextButton(onClick = {
                     pendingForceRun = false

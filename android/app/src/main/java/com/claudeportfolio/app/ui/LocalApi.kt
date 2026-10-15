@@ -24,7 +24,7 @@ val LocalApi = staticCompositionLocalOf<PortfolioApi> {
 /**
  * True iff the app has saved API config and is talking to the real
  * backend. The status pill in the AppBar reads this to flip between
- * "Live · paper acct" (green) and "Not connected" (red).
+ * "Live" (green) and "Not connected" (red).
  */
 val LocalIsLive = staticCompositionLocalOf { false }
 

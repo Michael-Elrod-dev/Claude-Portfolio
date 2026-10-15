@@ -11,18 +11,17 @@ class Emailer {
     this.ses = new SESClient({ region: REGION });
   }
 
-  async sendRunSummary({ runDate, dryRun, execResult, positions, analystSummary }) {
-    const executed = (execResult.results || []).filter((r) => r.status === 'executed' || r.status === 'dry_run' || r.status === 'already_submitted');
+  async sendRunSummary({ runDate, execResult, positions, analystSummary }) {
+    const executed = (execResult.results || []).filter((r) => r.status === 'executed' || r.status === 'already_submitted');
     const failed = (execResult.results || []).filter((r) => r.status === 'failed');
     const skipped = (execResult.results || []).filter((r) => r.status === 'skipped');
 
-    const modeTag = dryRun ? ' (DRY RUN)' : '';
     const tradeCount = (execResult.summary?.executed ?? 0) + (execResult.summary?.alreadySubmitted ?? 0);
     const subject = tradeCount > 0
-      ? `Claude Portfolio: ${tradeCount} Trade(s) Executed${modeTag} — ${runDate}`
-      : `Claude Portfolio: No Trades This Run${modeTag} — ${runDate}`;
+      ? `Claude Portfolio: ${tradeCount} Trade(s) Executed — ${runDate}`
+      : `Claude Portfolio: No Trades This Run — ${runDate}`;
 
-    const tradesSection = this._tradesSection(execResult.results || [], dryRun);
+    const tradesSection = this._tradesSection(execResult.results || []);
     const failedSection = failed.length > 0 ? this._failedSection(failed) : '';
     const skippedSection = skipped.length > 0 ? this._skippedSection(skipped) : '';
     const summarySection = analystSummary
@@ -58,8 +57,8 @@ class Emailer {
 
   // ── Sections ─────────────────────────────────────────────────────────────
 
-  _tradesSection(results, dryRun) {
-    const relevant = results.filter((r) => r.status === 'executed' || r.status === 'dry_run');
+  _tradesSection(results) {
+    const relevant = results.filter((r) => r.status === 'executed');
     if (relevant.length === 0) {
       return `<div style="margin-bottom:24px">
         <h2 style="color:#aaa">No Trades Executed</h2>
@@ -67,9 +66,9 @@ class Emailer {
       </div>`;
     }
 
-    const headerColor = dryRun ? '#ffaa00' : '#00ff88';
-    const heading = dryRun ? 'Trades (Dry Run — Not Submitted)' : 'Trades Executed ✓';
-    const statusLabel = { executed: '✓ filled', dry_run: 'dry run', already_submitted: '↩ prior run' };
+    const headerColor = '#00ff88';
+    const heading = 'Trades Executed ✓';
+    const statusLabel = { executed: '✓ filled', already_submitted: '↩ prior run' };
     const rows = relevant.map((r) => {
       const rec = r.recommendation || {};
       const side = rec.action || '?';
@@ -197,7 +196,7 @@ class Emailer {
                    padding:32px;max-width:750px;margin:0 auto">
 ${bodyContent}
 <hr style="border-color:#333;margin-top:32px">
-<p style="color:#555;font-size:11px">Claude Portfolio Trader — automated paper trading system</p>
+<p style="color:#555;font-size:11px">Claude Portfolio Trader — automated live trading system</p>
 </body></html>`;
 
     await this.ses.send(new SendEmailCommand({

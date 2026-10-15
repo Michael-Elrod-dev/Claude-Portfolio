@@ -51,8 +51,6 @@ function build(clientOpts, executorOpts = {}) {
   const ex = new Executor({
     keyId: 'k',
     secretKey: 's',
-    paper: true,
-    dryRun: false,
     runDate: '2026-09-07',
     sellSettlePollMs: 1,
     sellSettleTimeoutMs: 20,
@@ -87,13 +85,20 @@ test('the 9/7 UNH exit no longer sends a notional', async () => {
   assert.deepEqual(ex.client.calls.createOrder, []);
 });
 
-test('a dry-run full exit touches nothing', async () => {
+test('there is no dry-run escape hatch: a full exit always hits the API', async () => {
+  // The dryRun option was removed when the paper account went away. Passing
+  // it (or anything else) must not resurrect a no-op path — the position is
+  // closed for real, and no result ever carries a dry_run status.
   const ex = build({ positions: [UNH] }, { dryRun: true });
   const out = await ex.execute(recs(sellAll('UNH')));
 
-  assert.deepEqual(ex.client.calls.closePosition, []);
-  assert.deepEqual(ex.client.calls.createOrder, []);
-  assert.equal(byResult(out, 'UNH').status, 'dry_run');
+  assert.deepEqual(ex.client.calls.closePosition, ['UNH']);
+  assert.equal(byResult(out, 'UNH').status, 'executed');
+  assert.equal(out.summary.dryRun, undefined, 'summary must not report a dryRun tally');
+  assert.ok(
+    out.results.every((r) => r.status !== 'dry_run'),
+    'no result may be dry_run'
+  );
 });
 
 test('an already-closed position reports as already_submitted, not failed', async () => {

@@ -11,8 +11,7 @@
  *   4. Call the Analyst (Claude + web search) for trade recommendations
  *   5. Call the MemoUpdater (Claude, no tools) to rewrite the memo
  *   6. Write the new memo back to S3
- *   7. Execute all recommendations via Alpaca (live decided by SSM
- *      claude-portfolio-live with a fallback to env EXECUTOR_LIVE)
+ *   7. Execute all recommendations against the live brokerage account
  *   8. Archive the run to DynamoDB (claude-portfolio-runs) so the Android
  *      app can read it back via the API
  *   9. Send notifications: SES email (legacy) and FCM push (new) — both
@@ -21,10 +20,15 @@
  * Activity events are appended to claude-portfolio-activity throughout, so
  * the Settings → Recent activity screen has something to show.
  *
+ * There is no dry-run mode. Every run that gets past the active flag
+ * places real orders on the live brokerage account. The only off switches
+ * are SSM `claude-portfolio-active` (checked below, bypassable with
+ * { "force": true }) and the two EventBridge rules — `infra/toggle.sh off`
+ * sets both.
+ *
  * Environment variables (set on the Lambda function, NOT secrets):
  *   MEMO_S3_BUCKET   — S3 bucket for memo + queued trades
  *   MEMO_S3_KEY      — S3 key for the memo (default: memo.json)
- *   EXECUTOR_LIVE    — fallback for live trading if SSM param is absent
  *   SECRET_NAME      — Secrets Manager secret name (default: claude-portfolio/api-keys)
  *   AWS_REGION       — auto-injected by Lambda
  *
@@ -35,7 +39,6 @@
  */
 
 const { loadSecrets, isActive } = require('./secretsLoader');
-const { isLive } = require('./liveFlag');
 const { archiveRun } = require('./runArchiver');
 const { logActivity } = require('./activityLogger');
 const { publish: fcmPublish } = require('./fcmPublisher');
@@ -99,7 +102,6 @@ exports.handler = async (event = {}) => {
       alpaca: new AlpacaSource({
         keyId: cachedSecrets.ALPACA_KEY_ID,
         secretKey: cachedSecrets.ALPACA_SECRET_KEY,
-        paper: false,
       }),
       memo: new MemoSource({ backend: memoBackend }),
       // Reads the S3 snapshot the Trade-Parser export workflow drops in this
@@ -159,20 +161,16 @@ exports.handler = async (event = {}) => {
     await logActivity('memo_write', { lastUpdated: memoResult.memo?.lastUpdated || null });
 
     // ── 7. Execute ──────────────────────────────────────────────────────────
-    const dryRun = !(await isLive());
-    // paper:false → the live brokerage account. This is REAL money. The only
-    // remaining safety rail is dryRun (SSM /claude-portfolio-live, env
-    // EXECUTOR_LIVE): when dryRun is true the executor logs the orders it
-    // would place without sending them to Alpaca.
+    // Orders go to the live brokerage account unconditionally. This is REAL
+    // money and there is no dry-run rail: if a run reaches this line, it
+    // trades. The active flag checked in step 2 is the only gate.
     const executor = new Executor({
       keyId: cachedSecrets.ALPACA_KEY_ID,
       secretKey: cachedSecrets.ALPACA_SECRET_KEY,
-      paper: false,
-      dryRun,
       runDate,
     });
 
-    log(`Running executor (dryRun=${dryRun})...`);
+    log('Running executor (live)...');
     const execResult = await executor.execute(analysis.recommendations);
     log(`Executor done: ${JSON.stringify(execResult.summary)}`);
 
@@ -192,7 +190,6 @@ exports.handler = async (event = {}) => {
       runDate,
       timestamp: finishedAt.toISOString(),
       durationSec,
-      dryRun,
       forced,
       summary: analysis.recommendations?.summary || null,
       analystMeta: {
@@ -223,13 +220,11 @@ exports.handler = async (event = {}) => {
         const alpacaForEmail = new AlpacaSource({
           keyId: cachedSecrets.ALPACA_KEY_ID,
           secretKey: cachedSecrets.ALPACA_SECRET_KEY,
-          paper: false,
         });
         const alpacaData = await alpacaForEmail.fetch();
         const positions = alpacaData.positions.holdings;
         await emailer.sendRunSummary({
           runDate,
-          dryRun,
           execResult,
           positions,
           analystSummary: analysis.recommendations?.summary || null,
@@ -272,7 +267,6 @@ exports.handler = async (event = {}) => {
     const result = {
       status: 'ok',
       runDate,
-      dryRun,
       execution: execResult.summary,
       recommendationCount: (analysis.recommendations?.recommendations ?? []).length,
       briefingErrors: briefing.errors,

@@ -52,11 +52,6 @@ interface PortfolioService {
     @PUT("flags/active")
     suspend fun setFlagActive(@Body body: FlagBody): Flag
 
-    @GET("flags/live")
-    suspend fun getFlagLive(): Flag
-
-    @PUT("flags/live")
-    suspend fun setFlagLive(@Body body: FlagBody): Flag
 
     @POST("run/force")
     suspend fun runForce(): RunForceResponse

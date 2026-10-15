@@ -70,7 +70,7 @@ fun LastRunScreen() {
         if (state is UiState.Ready) {
             val run = state.data
             eyebrows["LastRun"] = if (run == null) "—"
-                else "${fmtDateEyebrow(run.runDate)} · ${if (run.dryRun) "DRY-RUN" else "LIVE"}"
+                else fmtDateEyebrow(run.runDate)
         }
     }
     PullToRefreshBox(
@@ -127,7 +127,7 @@ fun RunBody(run: RunSummary) {
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
                     Stat("RECS", fmtNum(run.recommendations.size.toDouble()))
-                    Stat("DRY-RUN", fmtNum(run.executor.dryRun.toDouble()))
+                    Stat("EXECUTED", fmtNum(run.executor.executed.toDouble()))
                     Stat("QUEUED", fmtNum(run.executor.queuedForReview.toDouble()))
                     Stat("FAILED", fmtNum(run.executor.failed.toDouble()))
                     Stat("SEARCHES", fmtNum((run.analystMeta.webSearchesUsed ?: 0).toDouble()))
@@ -256,7 +256,6 @@ private fun statusLabelAndColor(status: String): Pair<String, Color> = when (sta
     "queued_for_review" -> "QUEUED"   to PortfolioColors.Amber
     "skipped"           -> "SKIPPED"  to PortfolioColors.Dim
     "failed"            -> "FAILED"   to PortfolioColors.Neg
-    "dry_run"           -> "DRY-RUN"  to PortfolioColors.Dim
     "already_submitted" -> "ALREADY"  to PortfolioColors.Dim
     else                 -> status.uppercase() to PortfolioColors.Dim
 }

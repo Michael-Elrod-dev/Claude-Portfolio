@@ -40,9 +40,6 @@ interface PortfolioApi {
 
     suspend fun setFlagActive(value: Boolean): Flag
 
-    suspend fun getFlagLive(): Flag
-
-    suspend fun setFlagLive(value: Boolean): Flag
 
     suspend fun runForce()
 

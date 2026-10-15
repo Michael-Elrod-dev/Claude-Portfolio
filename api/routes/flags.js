@@ -1,13 +1,16 @@
 'use strict';
 
 /**
- * GET/PUT /flags/active and /flags/live.
+ * GET/PUT /flags/active.
  *
  * Active controls scheduled cron runs. The pipeline handler reads it on
  * every invocation and exits early if false (unless invoked with force).
  *
- * Live controls real order placement. The pipeline reads it from SSM
- * with a fallback to the EXECUTOR_LIVE env var. Defaults to false (dry-run).
+ * This is the only flag. There used to be a `live` flag that chose between
+ * dry-run and real order placement; it was removed along with the paper
+ * account, so every run that gets past `active` places real orders. That
+ * makes this endpoint — together with the two EventBridge rules — the off
+ * switch for the whole system.
  *
  * PUT body: { value: true | false }.
  */
@@ -16,7 +19,6 @@ const { getFlag, setFlag } = require('../services/ssm');
 const { ok, badRequest } = require('../respond');
 
 const ACTIVE = 'claude-portfolio-active';
-const LIVE = 'claude-portfolio-live';
 
 function parseBody(event) {
   if (!event.body) return null;
@@ -34,10 +36,6 @@ async function getActive() {
   return ok({ name: ACTIVE, value: await getFlag(ACTIVE) });
 }
 
-async function getLive() {
-  return ok({ name: LIVE, value: await getFlag(LIVE) });
-}
-
 async function putActive(event) {
   const body = parseBody(event);
   if (body === null || typeof body.value !== 'boolean') {
@@ -47,13 +45,4 @@ async function putActive(event) {
   return ok({ name: ACTIVE, value: body.value });
 }
 
-async function putLive(event) {
-  const body = parseBody(event);
-  if (body === null || typeof body.value !== 'boolean') {
-    return badRequest('body must be { "value": true | false }');
-  }
-  await setFlag(LIVE, body.value);
-  return ok({ name: LIVE, value: body.value });
-}
-
-module.exports = { getActive, getLive, putActive, putLive };
+module.exports = { getActive, putActive };

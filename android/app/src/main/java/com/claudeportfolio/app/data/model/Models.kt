@@ -95,7 +95,6 @@ data class RunSummary(
     val runDate: String,
     val timestamp: String,
     val durationSec: Int,
-    val dryRun: Boolean,
     val forced: Boolean,
     val summary: String? = null,
     val analystMeta: AnalystMeta = AnalystMeta(),
@@ -151,7 +150,6 @@ data class ExecutorTally(
     val queuedForReview: Int = 0,
     val skipped: Int,
     val failed: Int,
-    val dryRun: Int,
     val alreadySubmitted: Int = 0,
 )
 
@@ -167,7 +165,6 @@ data class RunListItem(
     val runDate: String,
     val timestamp: String,
     val durationSec: Int,
-    val dryRun: Boolean,
     val forced: Boolean,
     val summary: String? = null,
     val recCount: Int,

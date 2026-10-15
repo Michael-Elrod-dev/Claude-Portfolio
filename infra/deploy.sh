@@ -6,9 +6,11 @@
 # to the claude-portfolio-trader Lambda function.
 #
 # Usage:
-#   bash infra/deploy.sh            # deploy only
-#   bash infra/deploy.sh --live     # deploy + set EXECUTOR_LIVE=true
-#   bash infra/deploy.sh --dry-run  # deploy + set EXECUTOR_LIVE=false (default)
+#   bash infra/deploy.sh            # package + upload
+#
+# There are no mode flags. The pipeline has no dry-run: every run that gets
+# past SSM claude-portfolio-active places real orders. To stop trading, use
+# `bash infra/toggle.sh off` — not a deploy flag.
 
 set -euo pipefail
 
@@ -20,18 +22,20 @@ SRC_DIR="${REPO_ROOT}/data-gatherers"
 BUILD_DIR="${REPO_ROOT}/.build"
 ZIP_PATH="${BUILD_DIR}/lambda.zip"
 
-# Parse flags
-EXECUTOR_LIVE="false"
+# Reject the retired mode flags loudly rather than ignoring them — a stale
+# `--dry-run` in someone's shell history must not look like it worked.
 for arg in "$@"; do
   case "$arg" in
-    --live)     EXECUTOR_LIVE="true"  ;;
-    --dry-run)  EXECUTOR_LIVE="false" ;;
+    --live|--dry-run)
+      echo "✗ ${arg} no longer exists: the dry-run switch was removed with the paper account." >&2
+      echo "  Every run trades for real. Use 'bash infra/toggle.sh off' to stop runs." >&2
+      exit 1
+      ;;
   esac
 done
 
 echo "=== Claude Portfolio Trader — Deploy ==="
 echo "Source: ${SRC_DIR}"
-echo "EXECUTOR_LIVE: ${EXECUTOR_LIVE}"
 echo
 
 # ── 1. Install production dependencies ────────────────────────────────────
@@ -84,41 +88,10 @@ aws lambda wait function-updated \
   --function-name "${FUNCTION_NAME}" \
   --region "${REGION}"
 
-# ── 4. Update EXECUTOR_LIVE env var ──────────────────────────────────────
-echo "▸ Updating environment (EXECUTOR_LIVE=${EXECUTOR_LIVE})..."
-
-# Fetch current environment so we don't accidentally wipe other vars.
-CURRENT_ENV=$(aws lambda get-function-configuration \
-  --function-name "${FUNCTION_NAME}" \
-  --region "${REGION}" \
-  --query Environment.Variables \
-  --output json)
-
-# Merge EXECUTOR_LIVE into the existing env.
-NEW_ENV=$(echo "${CURRENT_ENV}" | "${PYTHON_BIN}" -c "
-import json, sys
-env = json.load(sys.stdin)
-env['EXECUTOR_LIVE'] = '${EXECUTOR_LIVE}'
-# Emit as the CLI's key=value,key=value format
-print(','.join(f'{k}={v}' for k, v in env.items()))
-")
-
-aws lambda update-function-configuration \
-  --function-name "${FUNCTION_NAME}" \
-  --environment "Variables={${NEW_ENV}}" \
-  --region "${REGION}" \
-  --query '{LastModified: LastModified}' \
-  --output table
-
 # ── Done ──────────────────────────────────────────────────────────────────
 echo
 echo "=== Deploy complete ==="
-if [ "${EXECUTOR_LIVE}" = "true" ]; then
-  echo "  ⚠️  EXECUTOR_LIVE=true — real orders will be submitted!"
-else
-  echo "  DRY RUN mode — no real orders will be submitted."
-  echo "  To go live: bash infra/deploy.sh --live"
-fi
+echo "  ⚠️  This build places REAL orders on every run. There is no dry-run."
 echo
 echo "Test a manual run:  bash infra/invoke-manual.sh"
 echo "Enable schedule:    bash infra/toggle.sh on"

@@ -1,6 +1,6 @@
 'use strict';
 
-const Alpaca = require('@alpacahq/alpaca-trade-api');
+const { createLiveClient } = require('../alpacaClient');
 const DataSource = require('./DataSource');
 
 const DEFAULT_ORDER_WINDOW_DAYS = 30;
@@ -12,13 +12,13 @@ const DEFAULT_ORDER_LIMIT = 500;
  * for these facts.
  */
 class AlpacaSource extends DataSource {
-  constructor({ keyId, secretKey, paper = true, orderWindowDays = DEFAULT_ORDER_WINDOW_DAYS } = {}) {
+  constructor({ keyId, secretKey, orderWindowDays = DEFAULT_ORDER_WINDOW_DAYS } = {}) {
     super({ name: 'alpaca' });
     if (!keyId || !secretKey) {
       throw new Error('AlpacaSource requires keyId and secretKey');
     }
     this.orderWindowDays = orderWindowDays;
-    this.client = new Alpaca({ keyId, secretKey, paper });
+    this.client = createLiveClient({ keyId, secretKey });
   }
 
   async fetch() {

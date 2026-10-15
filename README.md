@@ -11,9 +11,9 @@ the decisions"** — we do not shape what Claude buys, only what data it sees.
 > **History:** this began as a paper-trading research project run in parallel
 > to a separate Pelosi-Mirror real-money strategy. That experiment concluded
 > in June 2026; Claude was then given control of the (formerly Pelosi) live
-> brokerage account, which it now trades. The pipeline points at the live
-> account (`paper: false`); `paper: true` survives only in the local
-> `run-*.js` dev harnesses, which hit a paper account for safe testing.
+> brokerage account, which it now trades. In October 2026 the paper account
+> was removed outright: there is one real-money account, no account
+> switching, and no dry-run mode anywhere in the codebase.
 
 The system has three deployable units:
 
@@ -41,8 +41,8 @@ EventBridge (Mon + Thu @ 13:00 UTC)
    MemoUpdater (Claude, no tools)  ──►  new memo, written to S3
         │
         ▼
-   Executor  ──►  Alpaca paper account
-                  (dry-run by default; live mode opt-in via SSM flag)
+   Executor  ──►  Alpaca live account
+                  (always real orders — no dry-run)
         │
         ▼
    ──┬──  DynamoDB  claude-portfolio-runs       (run record, 30d TTL)
@@ -110,7 +110,6 @@ data-gatherers/                     ← Pipeline lambda code
 ├── lambda/
 │   ├── handler.js                 ← entry point — wraps the full pipeline in try/catch
 │   ├── secretsLoader.js           ← Secrets Manager + SSM active-flag reader
-│   ├── liveFlag.js                ← reads SSM /claude-portfolio-live (env fallback)
 │   ├── runArchiver.js             ← writes one row per run to claude-portfolio-runs
 │   ├── activityLogger.js          ← appends events to claude-portfolio-activity
 │   ├── fcmPublisher.js            ← lazy-loads firebase-admin, sends pushes
@@ -131,7 +130,7 @@ api/                                ← HTTP API lambda code
 │   ├── runs.js                    ← GET /runs/latest, /runs/{date}, /runs?limit=N
 │   ├── briefing.js                ← GET /briefing/latest
 │   ├── activity.js                ← GET /activity
-│   ├── flags.js                   ← GET/PUT /flags/active and /flags/live
+│   ├── flags.js                   ← GET/PUT /flags/active
 │   ├── devices.js                 ← POST /devices (FCM token registration)
 │   └── runForce.js                ← POST /run/force
 ├── services/
@@ -212,8 +211,9 @@ just running the pipeline locally for development, only step 1 matters.
 - Python 3 (for the cross-platform zip helper used by `infra/deploy*.sh`)
 - Node 22 (matches the Lambda runtime)
 - Android Studio (any 2024.x stable — Iguana through Ladybug)
-- Alpaca **paper** account: get keys at
-  [app.alpaca.markets](https://app.alpaca.markets)
+- Alpaca **live brokerage** account and its `AK…` keys: 
+  [app.alpaca.markets](https://app.alpaca.markets). There is no paper
+  fallback — every key this system accepts trades real money.
 - Finnhub free key: [finnhub.io](https://finnhub.io)
 - Anthropic API key: [console.anthropic.com](https://console.anthropic.com)
 
@@ -290,7 +290,7 @@ aws secretsmanager get-secret-value \
 4. Open **Settings → Connection**, paste:
    - Base URL: from step 3 output
    - Bearer token: from step 3 output
-5. Tap **Connect** — status pill at the top flips to green "Live · paper acct"
+5. Tap **Connect** — status pill at the top flips to green "Live"
 
 To verify the full loop end-to-end:
 
@@ -305,8 +305,10 @@ bash infra/invoke-manual.sh --force  # ~4 min later your phone gets a push
 ### AlpacaSource (`sources/AlpacaSource.js`)
 
 Pulls account state, open positions, and recent order history from Alpaca.
-Uses the official `@alpacahq/alpaca-trade-api` SDK against the paper-trading
-endpoint.
+Uses the official `@alpacahq/alpaca-trade-api` SDK against the live
+endpoint. Every client is built by `data-gatherers/alpacaClient.js`, which
+pins `baseUrl` to `https://api.alpaca.markets` so neither a missing `paper`
+flag nor a stray `APCA_API_BASE_URL` can repoint it.
 
 **Output shape:**
 ```
@@ -645,8 +647,8 @@ trades — and therefore the one with the most defensive defaults.
 **Output shape:**
 ```
 {
-  asOf, dryRun, runDate,
-  summary: { total, executed, queued, skipped, failed, dryRun },
+  asOf, runDate,
+  summary: { total, executed, skipped, failed, alreadySubmitted },
   results: [{ recommendation, sizing, status, orderId, reason }]
 }
 ```
@@ -655,22 +657,22 @@ trades — and therefore the one with the most defensive defaults.
 
 | Status | When | Order placed? |
 |---|---|---|
-| `dry_run` | Mode is dry-run (default) | No |
-| `executed` | Live mode + auto-execute confidence | Yes |
+| `executed` | Submitted to Alpaca | Yes |
 | `queued_for_review` | Confidence not in `autoExecute` set | No |
 | `skipped` | Pre-flight check failed (no position, sub-minimum, etc.) | No |
 | `failed` | Alpaca API rejected the submission | No (or partial) |
 
 **Notes / considerations:**
 
-- **Two independent switches — don't conflate them.** (1) `paper: false`
-  in the pipeline + API lambdas selects the **live brokerage account** (real
-  money) via the `ALPACA_KEY_ID`/`ALPACA_SECRET_KEY` secret; this is a code
-  constant, not a runtime flag, because the system never trades a paper
-  account in production. (2) `EXECUTOR_LIVE` / SSM `claude-portfolio-live`
-  is the **dry-run vs. place-orders** rail: when false the executor logs the
-  orders it would place without sending them. Dry-run is the safe default
-  and the env-var requirement is intentional friction.
+- **There is exactly one switch, and it is not a dry-run.** The executor
+  always submits real orders to the live brokerage account named by the
+  `ALPACA_KEY_ID`/`ALPACA_SECRET_KEY` secret. The only gate is SSM
+  `claude-portfolio-active`, checked at the top of every invocation, plus
+  the two EventBridge rules — `bash infra/toggle.sh off` sets all three.
+  The old `EXECUTOR_LIVE` env var and SSM `claude-portfolio-live` dry-run
+  rail were deleted in October 2026 along with the paper account, so a
+  deploy can no longer arm or disarm trading and `deploy.sh` rejects the
+  retired `--live` / `--dry-run` flags.
 - **Confidence gates auto-execution.** By default only `confidence: high`
   recommendations are auto-submitted; `medium` and `low` come back with
   status `queued_for_review` so a human can decide. Configurable via
@@ -727,8 +729,9 @@ before deployment.
   rule out telling Claude *what not to do* (e.g., don't put 80% of the
   account in one stock, don't trade options). Worth a deliberate
   conversation when we get to the system prompt.
-- **Secrets hygiene.** Paper trading keys have been pasted in chat during
-  development; rotate them before connecting this to anything that matters.
+- **Secrets hygiene.** Live keys were pasted in chat during the June 2026
+  migration and rotated on 2026-07-06. Rotate again if they are ever
+  exposed; these keys move real money.
 - **Observability.** When this runs unattended, we need logs we can read
   later to understand why Claude made each call. The briefing JSON is the
   audit trail; persist each week's briefing to S3 alongside the memo.
@@ -746,15 +749,15 @@ before deployment.
 - [x] Analyst — Anthropic API call, web search, JSON parsing
 - [x] MemoUpdater — second Claude call, rewrites memo post-decision
 - [x] S3Backend for MemoSource — round-trip verified
-- [x] Executor — places orders on Alpaca; dry-run default, idempotent
+- [x] Executor — places real orders on Alpaca; idempotent, no dry-run
 - [x] Lambda packaging + deployment (`infra/setup.sh` + `infra/deploy.sh`)
 - [x] EventBridge cron + Secrets Manager (no keys in env vars)
-- [x] SSM flags (`active`, `live`) + `toggle.sh` switch
+- [x] SSM flag (`active`) + `toggle.sh` switch — the only kill switch
 - [x] DynamoDB run archive + activity log (30-day TTL on both)
-- [x] Live execution enabled — Mon + Thu @ 13:00 UTC, real paper trades
+- [x] Live execution enabled — Mon + Thu @ 13:00 UTC, real money
 
 ### HTTP API
-- [x] All 13 endpoints (portfolio, memo, runs/*, briefing/latest, activity, flags/*, devices, run/force)
+- [x] All 12 endpoints (portfolio, memo, runs/*, briefing/latest, activity, flags/active, devices, run/force)
 - [x] Bearer-token auth — token stored in Secrets Manager, constant-time compare
 - [x] API Gateway HTTP API + Lambda (`api/` package)
 - [x] Provisioned via `infra/setup-api.sh` + deployed via `infra/deploy-api.sh`

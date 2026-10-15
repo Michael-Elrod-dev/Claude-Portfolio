@@ -37,7 +37,7 @@ import com.claudeportfolio.app.ui.theme.PortfolioColors
 fun PortfolioAppBar(
     eyebrow: String,
     title: String,
-    statusLabel: String = "Active · dry-run",
+    statusLabel: String = "Live",
     statusOk: Boolean = true,
     modifier: Modifier = Modifier,
 ) {

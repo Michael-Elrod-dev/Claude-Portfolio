@@ -1,8 +1,9 @@
 'use strict';
 
 /**
- * GET /portfolio — live Alpaca state enriched with weekPl, sinceInception,
- * per-position dayPl, opened (from order history), and thesis (from memo).
+ * GET /portfolio — live Alpaca state enriched with windowed account P/L
+ * (day, week, month, year-to-date, all-time), per-position dayPl, opened
+ * (from order history), and thesis (from memo).
  */
 
 const { buildPortfolio } = require('../services/alpaca');
