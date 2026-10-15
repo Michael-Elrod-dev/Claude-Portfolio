@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -517,7 +518,14 @@ private fun Chevron(
 // Stat tiles and the one big number
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** Micro label over a value. The grid unit of a dashboard. */
+/**
+ * Micro label over a value. The grid unit of a dashboard.
+ *
+ * Fills the height its parent offers, so tiles in a row whose height is
+ * `IntrinsicSize.Min` all match the tallest one. Under an unbounded parent
+ * (a plain scrolling column) fillMaxHeight is a no-op, so this is safe
+ * everywhere.
+ */
 @Composable
 fun KilnStatTile(
     label: String,
@@ -529,6 +537,7 @@ fun KilnStatTile(
     val type = LocalKilnTypography.current
     Column(
         modifier = modifier
+            .fillMaxHeight()
             .clip(KilnRadius.card)
             .background(KilnColors.surfaceCard)
             .border(KilnSpace.hairline, KilnColors.hairline, KilnRadius.card)

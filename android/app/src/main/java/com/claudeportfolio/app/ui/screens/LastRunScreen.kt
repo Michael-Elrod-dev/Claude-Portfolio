@@ -12,6 +12,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -150,7 +151,10 @@ fun RunBody(run: RunSummary) {
         // ── Run stats ────────────────────────────────────────────────────
         item {
             Column {
-                Row(horizontalArrangement = Arrangement.spacedBy(KilnSpace.gapGrid)) {
+                Row(
+                    modifier = Modifier.height(IntrinsicSize.Min),
+                    horizontalArrangement = Arrangement.spacedBy(KilnSpace.gapGrid),
+                ) {
                     KilnStatTile("Recs", fmtNum(run.recommendations.size.toDouble()), Modifier.weight(1f))
                     KilnStatTile(
                         "Executed",
@@ -170,7 +174,10 @@ fun RunBody(run: RunSummary) {
                     )
                 }
                 Spacer(Modifier.height(KilnSpace.gapGrid))
-                Row(horizontalArrangement = Arrangement.spacedBy(KilnSpace.gapGrid)) {
+                Row(
+                    modifier = Modifier.height(IntrinsicSize.Min),
+                    horizontalArrangement = Arrangement.spacedBy(KilnSpace.gapGrid),
+                ) {
                     KilnStatTile(
                         "Searches",
                         fmtNum((run.analystMeta.webSearchesUsed ?: 0).toDouble()),

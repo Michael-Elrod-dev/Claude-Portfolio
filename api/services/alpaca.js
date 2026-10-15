@@ -61,39 +61,70 @@ function _windowOrNull(window, allTime) {
 }
 
 /**
- * January 1st of the current year, as YYYY-MM-DD, for the year-to-date
- * window. Uses UTC so the boundary doesn't wobble with the server's zone.
+ * Fetch one daily portfolio-history series. Returns null (and logs) on
+ * failure so a single bad window can't take the whole payload down.
+ *
+ * @param {object} window  e.g. { period: '1W' } or { period: 'all' }
  */
-function startOfYear() {
-  return `${new Date().getUTCFullYear()}-01-01`;
+async function fetchHistory(client, window) {
+  try {
+    return await client.getPortfolioHistory({ ...window, timeframe: '1D' });
+  } catch (err) {
+    console.warn(`[alpaca] portfolio history (${window.period}) failed: ${err.message}`);
+    return null;
+  }
 }
 
 /**
- * @param {object} window  either { period: '1W' } or { date_start: 'YYYY-MM-DD' }
+ * First-to-last change across a series.
+ *
+ * Null AND zero values are filtered out. Zero shows up at the start of a
+ * window when the account didn't exist yet; including it makes "change since
+ * zero" come out as the whole current equity, which is meaningless. Once the
+ * account has funded equity for the full window, this is a no-op.
  */
-async function periodChange(client, window) {
-  try {
-    const hist = await client.getPortfolioHistory({
-      ...window,
-      timeframe: '1D',
-    });
-    // Filter out null AND zero values. Zero shows up at the start of a
-    // history window when the account didn't exist yet (or had no equity);
-    // including it makes "change since zero" come out as the current equity
-    // value, which is misleading. Once the account has had funded equity
-    // for the full window, this is a no-op.
-    const equity = (hist?.equity || []).filter((v) => v !== null && v > 0);
-    if (equity.length < 2) return null;
-    const first = equity[0];
-    const last = equity[equity.length - 1];
-    const pl = last - first;
-    const plPct = pl / first;
-    return { first, last, pl, plPct };
-  } catch (err) {
-    const label = window.period || `since ${window.date_start}`;
-    console.warn(`[alpaca] portfolio history (${label}) failed: ${err.message}`);
-    return null;
+function changeFromSeries(hist) {
+  const equity = (hist?.equity || []).filter((v) => v !== null && v > 0);
+  if (equity.length < 2) return null;
+  const first = equity[0];
+  const last = equity[equity.length - 1];
+  const pl = last - first;
+  return { first, last, pl, plPct: pl / first };
+}
+
+/**
+ * Year-to-date change, derived from the all-time daily series.
+ *
+ * NOT computed with a `date_start` query. That was the original approach and
+ * it was wrong: given only a start date, Alpaca returns ONE MONTH from that
+ * date, so `date_start=2026-01-01` came back as Jan 1-31 -- a month in which
+ * this account held nothing -- and YTD was null every day of the year. It
+ * would have kept measuring only January in every later year too.
+ *
+ * Baseline is the last funded close BEFORE Jan 1 (standard YTD). If the
+ * account has no history before Jan 1 -- it opened this year -- the baseline
+ * is its first funded close, i.e. YTD is measured from inception, which is
+ * how brokerages report a mid-year account.
+ */
+function ytdFromSeries(hist, now = new Date()) {
+  const ts = hist?.timestamp || [];
+  const eq = hist?.equity || [];
+  const yearStartSec = Date.UTC(now.getUTCFullYear(), 0, 1) / 1000;
+  let base = null;
+  let last = null;
+  for (let i = 0; i < eq.length; i++) {
+    const v = eq[i];
+    if (v === null || !(v > 0)) continue;
+    if (ts[i] < yearStartSec) {
+      base = v; // keeps the latest close before the year began
+    } else {
+      if (base === null) base = v; // opened this year: start from inception
+      last = v;
+    }
   }
+  if (base === null || last === null) return null;
+  const pl = last - base;
+  return { first: base, last, pl, plPct: pl / base };
 }
 
 /**
@@ -141,25 +172,26 @@ async function buildPortfolio({ memo } = {}) {
   const [
     account,
     rawPositions,
-    weekChange,
-    monthChange,
-    ytdChange,
-    allTime,
+    weekHist,
+    monthHist,
+    allHist,
     openedDates,
   ] = await Promise.all([
     client.getAccount(),
     client.getPositions(),
-    periodChange(client, { period: '1W' }),
-    periodChange(client, { period: '1M' }),
-    // "Year" means year-to-date (Jan 1 → now), not a trailing 12 months.
-    // A trailing-1A window on an account younger than a year collapses
-    // into all-time and gets suppressed by _windowOrNull; YTD at least
-    // becomes a distinct, meaningful number as soon as the account has
-    // lived through a New Year.
-    periodChange(client, { date_start: startOfYear() }),
-    periodChange(client, { period: 'all' }),
+    fetchHistory(client, { period: '1W' }),
+    fetchHistory(client, { period: '1M' }),
+    // One all-time series feeds both the lifetime figure and year-to-date
+    // ("year" means Jan 1 → now, not a trailing 12 months). See
+    // ytdFromSeries for why YTD is not its own query.
+    fetchHistory(client, { period: 'all' }),
     loadOpenedDates(client),
   ]);
+
+  const weekChange = changeFromSeries(weekHist);
+  const monthChange = changeFromSeries(monthHist);
+  const allTime = changeFromSeries(allHist);
+  const ytdChange = ytdFromSeries(allHist);
 
   const equity = num(account.equity);
   const lastEquity = num(account.last_equity);
@@ -218,22 +250,26 @@ async function buildPortfolio({ memo } = {}) {
       dayPlPct,
       // For each shorter window, only surface a value if it actually
       // covers a different starting point than the all-time series. If
-      // the account is younger than the requested window, periodChange
+      // the account is younger than the requested window, changeFromSeries
       // returns the same first equity as the all-time series (since
       // the zero-pre-funding values get filtered out in either case),
       // and we'd just be showing the same number twice. Null instead
       // → UI renders "—" so it's obvious the window is too short.
       //
-      // Current state of this account (funded 2026-04-13): week and month
-      // populate; yearPl is null because a year-to-date window still
-      // reaches back before funding, so it equals totalPl. It starts
-      // returning a distinct number on 2027-01-01.
+      // Year-to-date is the one window NOT passed through _windowOrNull.
+      // For an account opened during the current year, YTD is measured from
+      // inception -- that is how brokerages report it -- so on this account
+      // (funded 2026-04-13) it legitimately equals totalPl until 2027-01-01
+      // and diverges after. The guard existed to stop the app printing the
+      // same figure in two sibling grid cells; the Kiln redesign moved the
+      // lifetime figure out of the grid into the equity hero, so a null
+      // here would only blank a cell that has a true answer.
       weekPl: _windowOrNull(weekChange, allTime)?.pl ?? null,
       weekPlPct: _windowOrNull(weekChange, allTime)?.plPct ?? null,
       monthPl: _windowOrNull(monthChange, allTime)?.pl ?? null,
       monthPlPct: _windowOrNull(monthChange, allTime)?.plPct ?? null,
-      yearPl: _windowOrNull(ytdChange, allTime)?.pl ?? null,
-      yearPlPct: _windowOrNull(ytdChange, allTime)?.plPct ?? null,
+      yearPl: ytdChange?.pl ?? null,
+      yearPlPct: ytdChange?.plPct ?? null,
       totalPl: allTime?.pl ?? null,
       totalPlPct: allTime?.plPct ?? null,
     },

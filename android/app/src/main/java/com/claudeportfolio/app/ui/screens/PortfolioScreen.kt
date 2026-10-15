@@ -6,6 +6,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -150,12 +151,18 @@ private fun PortfolioBody(p: Portfolio) {
         // ── Window tiles ─────────────────────────────────────────────────
         item {
             Column {
-                Row(horizontalArrangement = Arrangement.spacedBy(KilnSpace.gapGrid)) {
+                Row(
+                    modifier = Modifier.height(IntrinsicSize.Min),
+                    horizontalArrangement = Arrangement.spacedBy(KilnSpace.gapGrid),
+                ) {
                     WindowTile("Today", a.dayPlPct, a.dayPl, Modifier.weight(1f))
                     WindowTile("Week", a.weekPlPct, a.weekPl, Modifier.weight(1f))
                 }
                 Spacer(Modifier.height(KilnSpace.gapGrid))
-                Row(horizontalArrangement = Arrangement.spacedBy(KilnSpace.gapGrid)) {
+                Row(
+                    modifier = Modifier.height(IntrinsicSize.Min),
+                    horizontalArrangement = Arrangement.spacedBy(KilnSpace.gapGrid),
+                ) {
                     WindowTile("Month", a.monthPlPct, a.monthPl, Modifier.weight(1f))
                     WindowTile("Year", a.yearPlPct, a.yearPl, Modifier.weight(1f))
                 }
@@ -244,7 +251,9 @@ private fun WindowTile(
         label = label,
         value = fmtPct(pct),
         valueColor = plColor(pct),
-        sub = if (dollars == null) null else fmtUsd(dollars, sign = true, decimals = 2),
+        // Always two lines, so an empty window is the same shape as a full
+        // one rather than a shorter box.
+        sub = if (dollars == null) "—" else fmtUsd(dollars, sign = true, decimals = 2),
         modifier = modifier,
     )
 }
