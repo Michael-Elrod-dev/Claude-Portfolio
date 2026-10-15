@@ -228,13 +228,16 @@ echo 'exports.handler = async () => ({ statusCode: 200, body: "placeholder" });'
   > "${TMPDIR}/index.js"
 (cd "${TMPDIR}" && zip -q placeholder.zip index.js)
 
+# 900s (15 min) is AWS Lambda's hard ceiling for --timeout, not a default:
+# it cannot be raised. Runs have reached 614s, so if the pipeline ever
+# outgrows the window it has to be split across invocations, not extended.
 aws lambda create-function \
   --function-name "${FUNCTION_NAME}" \
   --runtime nodejs22.x \
   --role "${ROLE_ARN}" \
   --handler "lambda/handler.handler" \
   --zip-file "fileb://${TMPDIR}/placeholder.zip" \
-  --timeout 1200 \
+  --timeout 900 \
   --memory-size 512 \
   --environment "Variables={MEMO_S3_BUCKET=${S3_BUCKET},MEMO_S3_KEY=memo.json,SECRET_NAME=${SECRET_NAME}}" \
   --region "${REGION}" \
