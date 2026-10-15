@@ -2,10 +2,10 @@
 
 package com.claudeportfolio.app.ui.screens
 
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,20 +16,16 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -39,11 +35,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import com.claudeportfolio.app.data.api.PortfolioApi
 import com.claudeportfolio.app.data.model.ActivityEvent
 import com.claudeportfolio.app.data.model.BriefingPayload
 import com.claudeportfolio.app.ui.LocalApi
@@ -51,41 +46,51 @@ import com.claudeportfolio.app.ui.LocalConfigStore
 import com.claudeportfolio.app.ui.LocalEyebrows
 import com.claudeportfolio.app.ui.LocalIsLive
 import com.claudeportfolio.app.ui.LocalRefreshTick
+import com.claudeportfolio.app.ui.components.ButtonKind
+import com.claudeportfolio.app.ui.components.DotState
+import com.claudeportfolio.app.ui.components.HairlineDivider
+import com.claudeportfolio.app.ui.components.KilnBanner
+import com.claudeportfolio.app.ui.components.KilnButton
+import com.claudeportfolio.app.ui.components.KilnCard
+import com.claudeportfolio.app.ui.components.KilnDot
+import com.claudeportfolio.app.ui.components.KilnField
+import com.claudeportfolio.app.ui.components.KilnSwitch
+import com.claudeportfolio.app.ui.components.SectionLabel
+import com.claudeportfolio.app.ui.components.Tone
 import com.claudeportfolio.app.ui.format.fmtAgo
-import com.claudeportfolio.app.ui.theme.LocalPortfolioTypography
-import com.claudeportfolio.app.ui.theme.PortfolioColors
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.runtime.collectAsState
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
+import com.claudeportfolio.app.ui.theme.KilnColors
+import com.claudeportfolio.app.ui.theme.KilnRadius
+import com.claudeportfolio.app.ui.theme.KilnSpace
+import com.claudeportfolio.app.ui.theme.LocalKilnTypography
+import com.claudeportfolio.app.ui.theme.metaMonoSmall
+import com.claudeportfolio.app.ui.theme.smallBody
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 
 /**
- * Settings screen.
+ * Settings, in Kiln. Four cards: Connection, Bot controls, Briefing, Activity.
  *
- * Three sections per the handoff:
- *   1. Bot controls — Active toggle, Live trading toggle (with confirm),
- *      Force run button.
- *   2. This week's briefing — outline button toggling a `<pre>`-style block.
- *   3. Recent activity — stack of timestamp + text rows.
+ * The active flag is the system's only kill switch now that the dry-run rail
+ * is gone, so its row carries a live/dead [KilnDot] and the force-run button
+ * is the danger variant — a forced run places real orders on the live
+ * account and nothing downstream will stop it.
+ *
+ * URLs, tokens, timestamps and the briefing JSON are machine-owned text, so
+ * they render in mono per Kiln's family split.
  */
 @Composable
 fun SettingsScreen() {
     val api = LocalApi.current
-    val type = LocalPortfolioTypography.current
+    val type = LocalKilnTypography.current
 
-    val activeFlag = remember { mutableStateOf(false) }
-    val activity   = remember { mutableStateOf<List<ActivityEvent>>(emptyList()) }
-    val briefing   = remember { mutableStateOf<BriefingPayload?>(null) }
+    val activeFlag = remember { mutableStateOf<Boolean?>(null) }
+    val activity = remember { mutableStateOf<List<ActivityEvent>>(emptyList()) }
+    val briefing = remember { mutableStateOf<BriefingPayload?>(null) }
     var briefingExpanded by remember { mutableStateOf(false) }
-
     var pendingForceRun by remember { mutableStateOf(false) }
 
     val scope = rememberCoroutineScope()
@@ -98,25 +103,17 @@ fun SettingsScreen() {
         eyebrows["Settings"] = "BOT · LIVE ACCOUNT"
     }
     LaunchedEffect(api, tick, refreshKey) {
-        // API calls may throw NotConnectedException when the user hasn't
-        // configured a connection yet — Settings is the one screen that
-        // still has to function in that state (so the user can fill in
-        // the Connection form). Each call is wrapped so a failure on
-        // one doesn't poison the others.
+        // Settings is the one screen that must work while disconnected (so
+        // the Connection form can be filled in), so every call is isolated
+        // and a failure in one doesn't poison the others.
         runCatching { activeFlag.value = api.getFlagActive().value }
+            .onFailure { activeFlag.value = null }
         runCatching { activity.value = api.getActivity(limit = 30) }
             .onFailure { activity.value = emptyList() }
         runCatching { briefing.value = api.getBriefingLatest() }
             .onFailure { briefing.value = null }
         isRefreshing = false
     }
-
-    val toolbarAndContent = Modifier
-        .fillMaxSize()
-        .background(PortfolioColors.Bg)
-        .verticalScroll(rememberScrollState())
-        .padding(horizontal = 22.dp)
-        .padding(top = 8.dp, bottom = 24.dp)
 
     PullToRefreshBox(
         isRefreshing = isRefreshing,
@@ -126,278 +123,269 @@ fun SettingsScreen() {
         },
         modifier = Modifier.fillMaxSize(),
     ) {
-    Column(modifier = toolbarAndContent) {
-        // ── 0. Connection ──────────────────────────────────────────────
-        SectionLabel("CONNECTION")
-        ConnectionSection()
-        Spacer(modifier = Modifier.height(24.dp))
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(KilnColors.surfaceApp)
+                .verticalScroll(rememberScrollState())
+                .padding(
+                    start = KilnSpace.padScreenH,
+                    end = KilnSpace.padScreenH,
+                    top = KilnSpace.padScreenV,
+                    bottom = KilnSpace.s18,
+                ),
+        ) {
+            // ── Connection ───────────────────────────────────────────────
+            GroupLabel("Connection")
+            ConnectionCard()
+            Spacer(Modifier.height(KilnSpace.gapSection))
 
-        // ── 1. Bot controls ────────────────────────────────────────────
-        SectionLabel("BOT CONTROLS")
-        ToggleRow(
-            title = "Active flag",
-            hint = "SSM /claude-portfolio-active · the only trading gate",
-            checked = activeFlag.value,
-            onChange = { newValue ->
-                scope.launch {
-                    activeFlag.value = api.setFlagActive(newValue).value
-                }
-            },
-            danger = false,
-        )
-        ButtonRow(
-            title = "Force run now",
-            hint = "Bypasses active flag · places real orders",
-            buttonLabel = "Run",
-            onClick = { pendingForceRun = true },
-        )
+            // ── Bot controls ─────────────────────────────────────────────
+            GroupLabel("Bot controls")
+            KilnCard {
+                SettingRow(
+                    title = "Active",
+                    hint = "SSM claude-portfolio-active · the only trading gate",
+                    leading = {
+                        KilnDot(
+                            state = when (activeFlag.value) {
+                                true -> DotState.Live
+                                false -> DotState.Dead
+                                null -> DotState.Idle
+                            },
+                        )
+                    },
+                    trailing = {
+                        KilnSwitch(
+                            checked = activeFlag.value == true,
+                            enabled = activeFlag.value != null,
+                            onChange = { newValue ->
+                                scope.launch {
+                                    runCatching { api.setFlagActive(newValue).value }
+                                        .onSuccess { activeFlag.value = it }
+                                }
+                            },
+                        )
+                    },
+                )
+                HairlineDivider(color = KilnColors.hairlineRow)
+                SettingRow(
+                    title = "Force run now",
+                    hint = "Bypasses the active flag · places real orders",
+                    trailing = {
+                        KilnButton(
+                            label = "Run",
+                            kind = ButtonKind.Danger,
+                            small = true,
+                            onClick = { pendingForceRun = true },
+                        )
+                    },
+                )
+            }
+            Spacer(Modifier.height(KilnSpace.gapSection))
 
-        // ── 2. This week's briefing ────────────────────────────────────
-        Spacer(modifier = Modifier.height(24.dp))
-        SectionLabel("THIS WEEK'S BRIEFING")
-
-        BriefingInspector(
-            briefing = briefing.value,
-            expanded = briefingExpanded,
-            onToggle = { briefingExpanded = !briefingExpanded },
-        )
-
-        // ── 3. Recent activity ─────────────────────────────────────────
-        Spacer(modifier = Modifier.height(24.dp))
-        SectionLabel("RECENT ACTIVITY")
-        if (activity.value.isEmpty()) {
-            Text(
-                "No activity yet.",
-                style = type.bodySecondary,
-                color = PortfolioColors.Dim,
-                modifier = Modifier.padding(vertical = 14.dp),
+            // ── Briefing ─────────────────────────────────────────────────
+            GroupLabel("Latest briefing")
+            BriefingCard(
+                briefing = briefing.value,
+                expanded = briefingExpanded,
+                onToggle = { briefingExpanded = !briefingExpanded },
             )
-        } else {
-            for (event in activity.value) {
-                ActivityRow(event)
+            Spacer(Modifier.height(KilnSpace.gapSection))
+
+            // ── Activity ─────────────────────────────────────────────────
+            GroupLabel("Recent activity")
+            KilnCard {
+                if (activity.value.isEmpty()) {
+                    Text(
+                        text = "No activity yet.",
+                        style = type.smallBody,
+                        color = KilnColors.textTertiary,
+                        modifier = Modifier.padding(KilnSpace.padCard),
+                    )
+                } else {
+                    activity.value.forEachIndexed { i, event ->
+                        ActivityRow(event, divider = i != activity.value.lastIndex)
+                    }
+                }
             }
         }
     }
-    }   // end PullToRefreshBox
 
-    // ── Confirmations ────────────────────────────────────────────────
     if (pendingForceRun) {
         AlertDialog(
             onDismissRequest = { pendingForceRun = false },
-            title = { Text("Run pipeline now?") },
-            text = { Text("Bypasses the active flag and places REAL orders on your live account. Pipeline takes 3–8 minutes.") },
+            shape = KilnRadius.dialog,
+            containerColor = KilnColors.surfaceCard,
+            tonalElevation = 0.dp,
+            modifier = Modifier.border(KilnSpace.hairline, KilnColors.dangerBorder, KilnRadius.dialog),
+            title = {
+                Text("Run the pipeline now?", style = type.dialogTitle, color = KilnColors.textPrimary)
+            },
+            text = {
+                Text(
+                    text = "This bypasses the active flag and places REAL orders on your live " +
+                        "account. There is no dry run. The pipeline takes 5–10 minutes.",
+                    style = type.smallBody,
+                    color = KilnColors.textSecondary,
+                )
+            },
             confirmButton = {
-                TextButton(onClick = {
-                    pendingForceRun = false
-                    scope.launch { api.runForce() }
-                }) { Text("Run") }
+                KilnButton(
+                    label = "Place real orders",
+                    kind = ButtonKind.Danger,
+                    onClick = {
+                        pendingForceRun = false
+                        scope.launch { runCatching { api.runForce() } }
+                    },
+                )
             },
             dismissButton = {
-                TextButton(onClick = { pendingForceRun = false }) { Text("Cancel") }
+                KilnButton(
+                    label = "Cancel",
+                    kind = ButtonKind.Text,
+                    onClick = { pendingForceRun = false },
+                )
             },
-            containerColor = PortfolioColors.Surface,
-            titleContentColor = PortfolioColors.Fg,
-            textContentColor = PortfolioColors.Dim,
         )
     }
 }
 
-// ── Pieces ────────────────────────────────────────────────────────────
+// ── Pieces ────────────────────────────────────────────────────────────────
 
 @Composable
-private fun SectionLabel(label: String) {
-    val type = LocalPortfolioTypography.current
-    Text(
-        text = label,
-        style = type.eyebrow,
-        color = PortfolioColors.Dim,
-        modifier = Modifier.padding(top = 4.dp, bottom = 4.dp),
-    )
+private fun GroupLabel(text: String) {
+    SectionLabel(text, modifier = Modifier.padding(bottom = KilnSpace.s7))
 }
 
 @Composable
-private fun ToggleRow(
+private fun SettingRow(
     title: String,
     hint: String,
-    checked: Boolean,
-    onChange: (Boolean) -> Unit,
-    danger: Boolean,
+    leading: (@Composable () -> Unit)? = null,
+    trailing: @Composable () -> Unit,
 ) {
-    val type = LocalPortfolioTypography.current
+    val type = LocalKilnTypography.current
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(vertical = 14.dp)
-            .drawBottomLine(),
+            .heightIn(min = KilnSpace.hitMobile)
+            .padding(horizontal = KilnSpace.padCard, vertical = KilnSpace.s8),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (leading != null) {
+            leading()
+            Spacer(Modifier.width(KilnSpace.s6))
+        }
         Column(modifier = Modifier.weight(1f)) {
-            Text(title, style = type.body, color = PortfolioColors.Fg)
-            Text(
-                text = hint,
-                style = type.caption,
-                color = PortfolioColors.Dim,
-                modifier = Modifier.padding(top = 2.dp),
-            )
+            Text(title, style = type.rowTitle, color = KilnColors.textPrimary)
+            Spacer(Modifier.height(KilnSpace.s1))
+            Text(hint, style = type.metaMonoSmall, color = KilnColors.textTertiary)
         }
-        Toggle(checked = checked, danger = danger, onChange = onChange)
+        Spacer(Modifier.width(KilnSpace.s8))
+        trailing()
     }
 }
 
 @Composable
-private fun Toggle(checked: Boolean, danger: Boolean, onChange: (Boolean) -> Unit) {
-    val onColor = if (danger) PortfolioColors.Neg else PortfolioColors.Pos
-    val track = if (checked) onColor else PortfolioColors.Line2
-    val thumbOffset by animateDpAsState(if (checked) 22.dp else 2.dp, label = "toggle")
-    Box(
-        modifier = Modifier
-            .width(44.dp)
-            .height(24.dp)
-            .clip(RoundedCornerShape(999.dp))
-            .background(track)
-            .clickable { onChange(!checked) },
-    ) {
-        Box(
-            modifier = Modifier
-                .padding(start = thumbOffset, top = 2.dp)
-                .size(20.dp)
-                .clip(RoundedCornerShape(999.dp))
-                .background(PortfolioColors.Bg),
-        )
-    }
-}
-
-@Composable
-private fun ButtonRow(
-    title: String,
-    hint: String,
-    buttonLabel: String,
-    onClick: () -> Unit,
-) {
-    val type = LocalPortfolioTypography.current
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 14.dp)
-            .drawBottomLine(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(title, style = type.body, color = PortfolioColors.Fg)
-            Text(
-                text = hint,
-                style = type.caption,
-                color = PortfolioColors.Dim,
-                modifier = Modifier.padding(top = 2.dp),
-            )
-        }
-        Box(
-            modifier = Modifier
-                .clickable(onClick = onClick)
-                .clip(RoundedCornerShape(8.dp))
-                .border(1.dp, PortfolioColors.Line2, RoundedCornerShape(8.dp))
-                .padding(horizontal = 18.dp, vertical = 8.dp),
-        ) {
-            Text(buttonLabel, style = type.bodySecondary, color = PortfolioColors.Fg)
-        }
-    }
-}
-
-@Composable
-private fun BriefingInspector(
+private fun BriefingCard(
     briefing: BriefingPayload?,
     expanded: Boolean,
     onToggle: () -> Unit,
 ) {
-    val type = LocalPortfolioTypography.current
-    val symCount = (briefing?.briefing?.get("symbolsCovered") as? kotlinx.serialization.json.JsonArray)?.size ?: 0
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 14.dp)
-            .drawBottomLine(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
-            modifier = Modifier
-                .clickable(onClick = onToggle)
-                .clip(RoundedCornerShape(8.dp))
-                .border(1.dp, PortfolioColors.Line2, RoundedCornerShape(8.dp))
-                .padding(horizontal = 14.dp, vertical = 8.dp),
-        ) {
-            Text(
-                if (expanded) "Hide briefing JSON" else "Inspect briefing JSON",
-                style = type.bodySecondary,
-                color = PortfolioColors.Fg,
-            )
-        }
-        Spacer(modifier = Modifier.weight(1f))
-        Text("$symCount symbols", style = type.caption, color = PortfolioColors.Dim)
-    }
-    if (expanded) {
-        val text = briefing?.briefing?.let { prettyPrintJson(it) } ?: "—"
-        Box(
+    val type = LocalKilnTypography.current
+    val symCount = (briefing?.briefing?.get("symbolsCovered") as? JsonArray)?.size
+    KilnCard {
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(max = 280.dp)
-                .background(PortfolioColors.Surface)
-                .padding(12.dp)
-                .verticalScroll(rememberScrollState()),
+                .heightIn(min = KilnSpace.hitMobile)
+                .padding(horizontal = KilnSpace.padCard, vertical = KilnSpace.s8),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                text = text,
-                style = type.mono.copy(lineHeight = 18.sp),
-                color = PortfolioColors.Dim,
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = briefing?.runDate ?: "No briefing",
+                    style = type.rowTitle.copy(fontFamily = type.metaMono.fontFamily),
+                    color = KilnColors.textPrimary,
+                )
+                Spacer(Modifier.height(KilnSpace.s1))
+                Text(
+                    text = if (symCount == null) "—" else "$symCount symbols covered",
+                    style = type.metaMonoSmall,
+                    color = KilnColors.textTertiary,
+                )
+            }
+            KilnButton(
+                label = if (expanded) "Hide JSON" else "Inspect",
+                kind = ButtonKind.Ghost,
+                small = true,
+                enabled = briefing != null,
+                onClick = onToggle,
             )
+        }
+        if (expanded && briefing != null) {
+            HairlineDivider()
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 320.dp)
+                    .background(KilnColors.surfaceInset)
+                    .verticalScroll(rememberScrollState())
+                    .padding(KilnSpace.s8),
+            ) {
+                Text(
+                    text = prettyPrintJson(briefing.briefing),
+                    style = type.metaMonoSmall,
+                    color = KilnColors.textSecondary,
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun ActivityRow(event: ActivityEvent) {
-    val type = LocalPortfolioTypography.current
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 10.dp)
-            .drawBottomLine(),
-        verticalAlignment = Alignment.Top,
-    ) {
-        Text(
-            text = fmtAgo(event.timestamp),
-            style = type.caption,
-            color = PortfolioColors.Dim,
-            modifier = Modifier.width(70.dp),
-        )
-        val text = (event.payload["text"] as? JsonPrimitive)?.contentOrNull
-            ?: "${event.kind} (${event.payload.size} fields)"
-        Text(
-            text = text,
-            style = type.caption,
-            color = PortfolioColors.Fg,
-            modifier = Modifier.weight(1f),
-        )
+private fun ActivityRow(event: ActivityEvent, divider: Boolean) {
+    val type = LocalKilnTypography.current
+    val text = (event.payload["text"] as? JsonPrimitive)?.contentOrNull
+        ?: "${event.kind} (${event.payload.size} fields)"
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = KilnSpace.padCard, vertical = KilnSpace.s7),
+            verticalAlignment = Alignment.Top,
+        ) {
+            Text(
+                text = fmtAgo(event.timestamp),
+                style = type.metaMonoSmall,
+                color = KilnColors.textFaint,
+                modifier = Modifier.width(64.dp),
+            )
+            Text(
+                text = text,
+                style = type.smallBody,
+                color = KilnColors.textBody,
+                modifier = Modifier.weight(1f),
+            )
+        }
+        if (divider) HairlineDivider(color = KilnColors.hairlineRow)
     }
 }
 
-/**
- * Pretty-print a JsonObject using the kotlinx-serialization formatter so
- * the inspector's `<pre>` block renders properly indented JSON.
- */
 private val prettyJson = Json { prettyPrint = true }
 private fun prettyPrintJson(obj: JsonObject): String =
     prettyJson.encodeToString(JsonObject.serializer(), obj)
 
-// ── Connection section ───────────────────────────────────────────────
+// ── Connection ────────────────────────────────────────────────────────────
 //
-// Shows the saved API base URL + bearer token (the token is masked) and
-// lets the user edit / save / disconnect. When disconnected, every
-// other screen renders a "Not connected" error banner so it's never
-// ambiguous what's on screen.
+// The saved API base URL and bearer token (masked by default). While
+// disconnected every other screen renders a "Not connected" error, so it is
+// never ambiguous whether what's on screen is real.
 
 @Composable
-private fun ConnectionSection() {
-    val type = LocalPortfolioTypography.current
+private fun ConnectionCard() {
+    val type = LocalKilnTypography.current
     val store = LocalConfigStore.current
     val isLive = LocalIsLive.current
     val scope = rememberCoroutineScope()
@@ -408,138 +396,79 @@ private fun ConnectionSection() {
     var initialized by remember { mutableStateOf(false) }
     var revealToken by remember { mutableStateOf(false) }
 
-    // Seed the inputs once the saved values arrive.
     if (!initialized && saved != null) {
         baseUrlInput = saved?.baseUrl.orEmpty()
         tokenInput = saved?.bearerToken.orEmpty()
         initialized = true
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp),
-    ) {
-        Text(
-            text = if (isLive) "Live · talking to your API"
-                   else "Not connected · enter your API URL and bearer token to connect",
-            style = type.caption,
-            color = if (isLive) PortfolioColors.Pos else PortfolioColors.Dim,
-            modifier = Modifier.padding(bottom = 12.dp),
+    Column {
+        KilnBanner(
+            title = if (isLive) "Connected" else "Not connected",
+            description = if (isLive) {
+                "Reading the live brokerage account through your API."
+            } else {
+                "Enter the API URL and bearer token to connect."
+            },
+            tone = if (isLive) Tone.Success else Tone.Neutral,
         )
+        Spacer(Modifier.height(KilnSpace.gapGrid))
 
-        ConfigField(
-            label = "BASE URL",
-            value = baseUrlInput,
-            onValueChange = { baseUrlInput = it },
-            placeholder = "https://xxxxx.execute-api.us-east-1.amazonaws.com",
-            keyboardType = KeyboardType.Uri,
-        )
-        Spacer(Modifier.height(10.dp))
-        ConfigField(
-            label = "BEARER TOKEN",
-            value = tokenInput,
-            onValueChange = { tokenInput = it },
-            placeholder = "paste from Secrets Manager",
-            keyboardType = KeyboardType.Password,
-            visualTransformation = if (revealToken) VisualTransformation.None else PasswordVisualTransformation(),
-            trailingLabel = if (revealToken) "HIDE" else "SHOW",
-            onTrailingClick = { revealToken = !revealToken },
-        )
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 14.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            ConnectionButton(
-                label = if (isLive) "Save changes" else "Connect",
-                enabled = baseUrlInput.isNotBlank() && tokenInput.isNotBlank(),
-                onClick = {
-                    scope.launch { store.save(baseUrlInput, tokenInput) }
+        KilnCard(padded = true) {
+            KilnField(
+                label = "Base URL",
+                value = baseUrlInput,
+                onValueChange = { baseUrlInput = it },
+                placeholder = "https://xxxxx.execute-api.us-east-1.amazonaws.com",
+                mono = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
+            )
+            Spacer(Modifier.height(KilnSpace.s10))
+            KilnField(
+                label = "Bearer token",
+                value = tokenInput,
+                onValueChange = { tokenInput = it },
+                placeholder = "paste from Secrets Manager",
+                mono = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                visualTransformation = if (revealToken) {
+                    VisualTransformation.None
+                } else PasswordVisualTransformation(),
+                trailing = {
+                    val interaction = remember { MutableInteractionSource() }
+                    Text(
+                        text = if (revealToken) "HIDE" else "SHOW",
+                        style = type.microLabel,
+                        color = KilnColors.textTertiary,
+                        modifier = Modifier
+                            .clip(KilnRadius.inline)
+                            .clickable(interactionSource = interaction, indication = null) {
+                                revealToken = !revealToken
+                            }
+                            .padding(horizontal = KilnSpace.s3, vertical = KilnSpace.s3),
+                    )
                 },
             )
-            if (isLive) {
-                ConnectionButton(
-                    label = "Disconnect",
-                    onClick = {
-                        scope.launch { store.clear() }
-                        baseUrlInput = ""
-                        tokenInput = ""
-                    },
+            Spacer(Modifier.height(KilnSpace.s11))
+            Row(horizontalArrangement = Arrangement.spacedBy(KilnSpace.s7)) {
+                KilnButton(
+                    label = if (isLive) "Save changes" else "Connect",
+                    kind = ButtonKind.Primary,
+                    enabled = baseUrlInput.isNotBlank() && tokenInput.isNotBlank(),
+                    onClick = { scope.launch { store.save(baseUrlInput, tokenInput) } },
                 )
+                if (isLive) {
+                    KilnButton(
+                        label = "Disconnect",
+                        kind = ButtonKind.Ghost,
+                        onClick = {
+                            scope.launch { store.clear() }
+                            baseUrlInput = ""
+                            tokenInput = ""
+                        },
+                    )
+                }
             }
         }
-    }
-}
-
-@Composable
-private fun ConfigField(
-    label: String,
-    value: String,
-    onValueChange: (String) -> Unit,
-    placeholder: String,
-    keyboardType: KeyboardType = KeyboardType.Text,
-    visualTransformation: VisualTransformation = VisualTransformation.None,
-    trailingLabel: String? = null,
-    onTrailingClick: (() -> Unit)? = null,
-) {
-    val type = LocalPortfolioTypography.current
-    Text(label, style = type.eyebrow, color = PortfolioColors.Dim)
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(top = 4.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(PortfolioColors.Surface)
-            .border(1.dp, PortfolioColors.Line2, RoundedCornerShape(8.dp))
-            .padding(horizontal = 12.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(modifier = Modifier.weight(1f)) {
-            if (value.isEmpty()) {
-                Text(placeholder, style = type.bodySecondary, color = PortfolioColors.Dim2)
-            }
-            BasicTextField(
-                value = value,
-                onValueChange = onValueChange,
-                singleLine = true,
-                textStyle = type.bodySecondary.copy(color = PortfolioColors.Fg),
-                cursorBrush = SolidColor(PortfolioColors.Fg),
-                keyboardOptions = KeyboardOptions(keyboardType = keyboardType),
-                visualTransformation = visualTransformation,
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-        if (trailingLabel != null && onTrailingClick != null) {
-            Text(
-                text = trailingLabel,
-                style = type.microLabel,
-                color = PortfolioColors.Dim,
-                modifier = Modifier
-                    .clickable(onClick = onTrailingClick)
-                    .padding(start = 10.dp, top = 2.dp, bottom = 2.dp),
-            )
-        }
-    }
-}
-
-@Composable
-private fun ConnectionButton(
-    label: String,
-    enabled: Boolean = true,
-    onClick: () -> Unit,
-) {
-    val type = LocalPortfolioTypography.current
-    val color = if (enabled) PortfolioColors.Fg else PortfolioColors.Dim2
-    Box(
-        modifier = Modifier
-            .clickable(enabled = enabled, onClick = onClick)
-            .clip(RoundedCornerShape(8.dp))
-            .border(1.dp, if (enabled) PortfolioColors.Line2 else PortfolioColors.Line, RoundedCornerShape(8.dp))
-            .padding(horizontal = 18.dp, vertical = 8.dp),
-    ) {
-        Text(label, style = type.bodySecondary, color = color)
     }
 }

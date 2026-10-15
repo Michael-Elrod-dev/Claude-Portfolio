@@ -7,52 +7,64 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.em
-import androidx.compose.ui.unit.sp
 import com.claudeportfolio.app.data.model.Portfolio
 import com.claudeportfolio.app.data.model.Position
 import com.claudeportfolio.app.ui.LocalApi
 import com.claudeportfolio.app.ui.LocalEyebrows
 import com.claudeportfolio.app.ui.LocalRefreshTick
 import com.claudeportfolio.app.ui.UiState
+import com.claudeportfolio.app.ui.components.CardAccent
+import com.claudeportfolio.app.ui.components.HairlineDivider
+import com.claudeportfolio.app.ui.components.KilnCard
+import com.claudeportfolio.app.ui.components.KilnStatTile
+import com.claudeportfolio.app.ui.components.KilnStatusRow
+import com.claudeportfolio.app.ui.components.PortfolioSkeleton
+import com.claudeportfolio.app.ui.components.SectionLabel
 import com.claudeportfolio.app.ui.format.fmtDayDateEyebrow
 import com.claudeportfolio.app.ui.format.fmtPct
+import com.claudeportfolio.app.ui.format.fmtShares
 import com.claudeportfolio.app.ui.format.fmtUsd
 import com.claudeportfolio.app.ui.rememberLoadable
-import com.claudeportfolio.app.ui.theme.LocalPortfolioTypography
-import com.claudeportfolio.app.ui.theme.PortfolioColors
+import com.claudeportfolio.app.ui.theme.KilnColors
+import com.claudeportfolio.app.ui.theme.KilnSpace
+import com.claudeportfolio.app.ui.theme.LocalKilnTypography
+import com.claudeportfolio.app.ui.theme.metaMonoSmall
+import com.claudeportfolio.app.ui.theme.plColor
+import com.claudeportfolio.app.ui.theme.smallBody
 
 /**
- * Vertical scroll layout per the handoff spec:
- *   - Equity hero block (40sp big number + day/week stats + cash line)
- *   - Section divider (1px Line)
- *   - "N POSITIONS · +X% ALL-TIME" eyebrow
- *   - List of position rows: ticker + qty + thesis on the left,
- *     market value + P/L% on the right
+ * Portfolio, in Kiln.
+ *
+ * Layout, top to bottom:
+ *   - Equity hero: the one [KilnTypography.figure] on the screen, in mono,
+ *     with the lifetime return beside it. Lifetime sits in the hero rather
+ *     than in the tile grid because it is the headline number for this
+ *     account — a single $100 deposit and nothing since, so total return is
+ *     the honest measure of the whole experiment.
+ *   - A 2x2 grid of window tiles: today, week, month, year. Five windows in
+ *     one row does not fit a phone; the hero takes the fifth.
+ *   - A cash card, as label/value rows rather than a cramped three-column
+ *     grid.
+ *   - Positions, in a single card with hairline row dividers.
  */
 @Composable
 fun PortfolioScreen() {
@@ -63,9 +75,6 @@ fun PortfolioScreen() {
     var isRefreshing by remember { mutableStateOf(false) }
     val state = rememberLoadable(api, tick, refreshKey) { api.getPortfolio() }
 
-    // Whenever the load resolves (Ready or Error), clear the refresh
-    // indicator. We can't hook directly into rememberLoadable, but a
-    // state-keyed effect is essentially the same thing.
     LaunchedEffect(state) {
         if (state !is UiState.Loading) isRefreshing = false
         if (state is UiState.Ready) {
@@ -82,279 +91,244 @@ fun PortfolioScreen() {
         modifier = Modifier.fillMaxSize(),
     ) {
         when (state) {
-            is UiState.Loading -> com.claudeportfolio.app.ui.components.PortfolioSkeleton()
-            is UiState.Error   -> ErrorBanner(state.message)
-            is UiState.Ready   -> PortfolioBody(state.data)
+            is UiState.Loading -> PortfolioSkeleton()
+            is UiState.Error -> ErrorBanner(state.message)
+            is UiState.Ready -> PortfolioBody(state.data)
         }
     }
 }
 
 @Composable
 private fun PortfolioBody(p: Portfolio) {
-    val type = LocalPortfolioTypography.current
+    val type = LocalKilnTypography.current
     val a = p.account
     val holdings = p.positions.holdings
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(PortfolioColors.Bg)
-            .padding(start = 22.dp, end = 22.dp, top = 8.dp, bottom = 24.dp),
+            .background(KilnColors.surfaceApp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            start = KilnSpace.padScreenH,
+            end = KilnSpace.padScreenH,
+            top = KilnSpace.padScreenV,
+            bottom = KilnSpace.s18,
+        ),
     ) {
-        // ── Equity hero ──────────────────────────────────────────────
+        // ── Equity hero ──────────────────────────────────────────────────
         item {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp, bottom = 24.dp)
-                    .drawBottomLine(),
-            ) {
-                Text("EQUITY", style = type.eyebrow, color = PortfolioColors.Dim)
+            Column(modifier = Modifier.fillMaxWidth()) {
+                SectionLabel("Equity")
+                Spacer(Modifier.height(KilnSpace.s4))
                 Text(
                     text = fmtUsd(a.equity, decimals = 2),
-                    style = type.equityHero,
-                    color = PortfolioColors.Fg,
-                    modifier = Modifier.padding(top = 4.dp),
+                    style = type.figure,
+                    color = KilnColors.textPrimary,
                 )
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    StatCol(
-                        label = "TODAY",
-                        pct = a.dayPlPct,
-                        dollars = a.dayPl,
-                        modifier = Modifier.weight(1f),
+                Spacer(Modifier.height(KilnSpace.s6))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = fmtPct(a.totalPlPct),
+                        style = type.status,
+                        color = plColor(a.totalPlPct),
                     )
-                    StatCol(
-                        label = "MONTH",
-                        pct = a.monthPlPct,
-                        dollars = a.monthPl,
-                        modifier = Modifier.weight(1f),
+                    Text(
+                        text = "  ${fmtUsd(a.totalPl, sign = true, decimals = 2)}",
+                        style = type.metaMono,
+                        color = KilnColors.textSecondary,
                     )
-                    StatCol(
-                        label = "YEAR",
-                        pct = a.yearPlPct,
-                        dollars = a.yearPl,
-                        modifier = Modifier.weight(1f),
+                    Text(
+                        text = "  all time",
+                        style = type.metaMono,
+                        color = KilnColors.textFaint,
                     )
-                    StatCol(
-                        label = "TOTAL",
-                        pct = a.totalPlPct,
-                        dollars = a.totalPl,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 14.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    CashCol(label = "CASH",         value = a.cash,        modifier = Modifier.weight(1f))
-                    CashCol(label = "BUYING POWER", value = a.buyingPower, modifier = Modifier.weight(1f))
-                    CashCol(label = "COST BASIS",   value = a.costBasis,   modifier = Modifier.weight(1f))
                 }
             }
+            Spacer(Modifier.height(KilnSpace.gapSection))
         }
 
-        // ── Positions section header ─────────────────────────────────
+        // ── Window tiles ─────────────────────────────────────────────────
+        item {
+            Column {
+                Row(horizontalArrangement = Arrangement.spacedBy(KilnSpace.gapGrid)) {
+                    WindowTile("Today", a.dayPlPct, a.dayPl, Modifier.weight(1f))
+                    WindowTile("Week", a.weekPlPct, a.weekPl, Modifier.weight(1f))
+                }
+                Spacer(Modifier.height(KilnSpace.gapGrid))
+                Row(horizontalArrangement = Arrangement.spacedBy(KilnSpace.gapGrid)) {
+                    WindowTile("Month", a.monthPlPct, a.monthPl, Modifier.weight(1f))
+                    WindowTile("Year", a.yearPlPct, a.yearPl, Modifier.weight(1f))
+                }
+            }
+            Spacer(Modifier.height(KilnSpace.gapSection))
+        }
+
+        // ── Cash ─────────────────────────────────────────────────────────
+        item {
+            KilnCard {
+                KilnStatusRow("Cash", fmtUsd(a.cash, decimals = 2))
+                KilnStatusRow("Buying power", fmtUsd(a.buyingPower, decimals = 2))
+                KilnStatusRow("Cost basis", fmtUsd(a.costBasis, decimals = 2), divider = false)
+            }
+            Spacer(Modifier.height(KilnSpace.gapSection))
+        }
+
+        // ── Positions header ─────────────────────────────────────────────
         item {
             val allTimePct = if (p.positions.totalCostBasis > 0) {
                 p.positions.totalUnrealizedPl / p.positions.totalCostBasis
-            } else 0.0
-            Text(
-                text = "${holdings.size} POSITIONS · ${fmtPct(allTimePct)} ALL-TIME",
-                style = type.eyebrow,
-                color = PortfolioColors.Dim,
-                modifier = Modifier.padding(top = 18.dp, bottom = 4.dp),
-            )
-        }
-
-        // ── Position rows ────────────────────────────────────────────
-        items(holdings, key = { it.symbol }) { pos -> PositionRow(pos) }
-    }
-}
-
-@Composable
-private fun PositionRow(p: Position) {
-    val type = LocalPortfolioTypography.current
-    val plPos = p.unrealizedPl >= 0
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 12.dp)
-            .drawBottomLine(),
-    ) {
-        // Left column — ticker + qty + thesis
-        Column(modifier = Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.Bottom) {
-                Text(p.symbol,
-                     style = type.sectionTicker, color = PortfolioColors.Fg)
-                Text(" ${p.qty.toInt()} sh",
-                     style = type.eyebrow, color = PortfolioColors.Dim2,
-                     modifier = Modifier.padding(start = 6.dp))
-            }
-            if (!p.thesis.isNullOrBlank()) {
+            } else null
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = KilnSpace.s7),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                SectionLabel(
+                    "${holdings.size} ${if (holdings.size == 1) "position" else "positions"}",
+                    modifier = Modifier.weight(1f),
+                )
                 Text(
-                    text = p.thesis,
-                    style = type.caption,
-                    color = PortfolioColors.Dim,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 4.dp),
+                    text = fmtPct(allTimePct),
+                    style = type.status,
+                    color = plColor(allTimePct),
+                )
+                Text(
+                    text = " unrealized",
+                    style = type.metaMonoSmall,
+                    color = KilnColors.textFaint,
                 )
             }
         }
-        // Right column — value + P/L%
-        Column(horizontalAlignment = Alignment.End) {
-            Text(
-                text = fmtUsd(p.marketValue, decimals = 0),
-                style = type.sectionTicker.copy(fontWeight = FontWeight.Medium),
-                color = PortfolioColors.Fg,
-            )
-            Text(
-                text = fmtPct(p.unrealizedPlPct),
-                style = type.caption,
-                color = if (plPos) PortfolioColors.Pos else PortfolioColors.Neg,
-                modifier = Modifier.padding(top = 4.dp),
-            )
+
+        // ── Positions ────────────────────────────────────────────────────
+        if (holdings.isEmpty()) {
+            item {
+                KilnCard {
+                    com.claudeportfolio.app.ui.components.KilnEmptyState(
+                        headline = "No positions",
+                        copy = "The account is all cash. The next run will decide what to buy.",
+                    )
+                }
+            }
+        } else {
+            // One card, rows inside it. This book holds ten positions, so
+            // lazy per-row items would buy nothing and would cost the card
+            // its rounded corners and border.
+            item {
+                KilnCard {
+                    holdings.forEachIndexed { index, pos ->
+                        PositionRow(pos, isLast = index == holdings.lastIndex)
+                    }
+                }
+            }
         }
     }
 }
 
 /**
- * One column of the Today / Month / Year / Total grid in the equity hero.
- * Three stacked rows per the design spec:
- *   1. 10sp uppercase label in Dim
- *   2. 15sp / weight 500 / tabular-nums signed percent, colored by sign
- *   3. 11sp Dim / tabular-nums signed dollar amount, 0 decimals
- * Spacing: 4dp between label/percent, 2dp between percent/dollars.
+ * One P/L window. Shows an em dash when the backend suppressed the window —
+ * which is honest rather than broken: "year" is year-to-date, and on an
+ * account funded in April 2026 that window still reaches back before
+ * funding, so it would just restate the lifetime figure already in the hero.
+ * It starts carrying a distinct number on 2027-01-01.
  */
 @Composable
-private fun StatCol(
+private fun WindowTile(
     label: String,
     pct: Double?,
     dollars: Double?,
     modifier: Modifier = Modifier,
 ) {
-    val positive = (pct ?: 0.0) >= 0
-    val plColor = if (positive) PortfolioColors.Pos else PortfolioColors.Neg
-
-    Column(modifier = modifier) {
-        Text(
-            text = label,
-            style = androidx.compose.ui.text.TextStyle(
-                fontSize = 10.sp,
-                color = PortfolioColors.Dim,
-                letterSpacing = 0.03.em,
-            ),
-        )
-        Text(
-            text = fmtPct(pct, sign = true, decimals = 2),
-            style = androidx.compose.ui.text.TextStyle(
-                fontSize = 15.sp,
-                fontWeight = FontWeight.Medium,
-                color = plColor,
-                fontFeatureSettings = "tnum",
-            ),
-            modifier = Modifier.padding(top = 4.dp),
-        )
-        Text(
-            text = fmtUsd(dollars, sign = true, decimals = 0),
-            style = androidx.compose.ui.text.TextStyle(
-                fontSize = 11.sp,
-                color = PortfolioColors.Dim,
-                fontFeatureSettings = "tnum",
-            ),
-            modifier = Modifier.padding(top = 2.dp),
-        )
-    }
+    KilnStatTile(
+        label = label,
+        value = fmtPct(pct),
+        valueColor = plColor(pct),
+        sub = if (dollars == null) null else fmtUsd(dollars, sign = true, decimals = 2),
+        modifier = modifier,
+    )
 }
 
-/**
- * One column of the Cash / Buying power / Cost basis grid below the
- * P/L row. Same vertical rhythm as [StatCol] (label-then-value), but
- * only two rows and full-Fg color since these aren't gains/losses.
- *   1. 10sp uppercase label in Dim
- *   2. 13sp / weight 500 / tabular-nums whole-dollar value in Fg
- */
 @Composable
-private fun CashCol(
-    label: String,
-    value: Double?,
-    modifier: Modifier = Modifier,
-) {
-    Column(modifier = modifier) {
-        Text(
-            text = label,
-            style = androidx.compose.ui.text.TextStyle(
-                fontSize = 10.sp,
-                color = PortfolioColors.Dim,
-                letterSpacing = 0.03.em,
-            ),
-        )
-        Text(
-            text = fmtUsd(value, decimals = 0),
-            style = androidx.compose.ui.text.TextStyle(
-                fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-                color = PortfolioColors.Fg,
-                fontFeatureSettings = "tnum",
-            ),
-            modifier = Modifier.padding(top = 3.dp),
-        )
-    }
-}
-
-/** Used to mark Loading globally; shown briefly with mock data. */
-@Composable
-internal fun LoadingPlaceholder() {
-    Box(
-        modifier = Modifier.fillMaxSize().background(PortfolioColors.Bg),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            "Loading…",
-            style = LocalPortfolioTypography.current.caption,
-            color = PortfolioColors.Dim,
-        )
+private fun PositionRow(p: Position, isLast: Boolean) {
+    val type = LocalKilnTypography.current
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            verticalAlignment = Alignment.Top,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = KilnSpace.padCard, vertical = KilnSpace.s8),
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Ticker is machine-owned: mono, not sans.
+                    Text(
+                        text = p.symbol,
+                        style = type.identity.copy(
+                            fontFamily = type.metaMono.fontFamily,
+                            letterSpacing = type.status.letterSpacing,
+                        ),
+                        color = KilnColors.textPrimary,
+                    )
+                    Spacer(Modifier.width(KilnSpace.s4))
+                    Text(
+                        text = "${fmtShares(p.qty)} sh",
+                        style = type.metaMonoSmall,
+                        color = KilnColors.textFaint,
+                    )
+                }
+                if (!p.thesis.isNullOrBlank()) {
+                    Text(
+                        text = p.thesis,
+                        style = type.smallBody,
+                        color = KilnColors.textSecondary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = KilnSpace.s2),
+                    )
+                }
+            }
+            Spacer(Modifier.width(KilnSpace.s8))
+            Column(horizontalAlignment = Alignment.End) {
+                Text(
+                    text = fmtUsd(p.marketValue, decimals = 2),
+                    style = type.metaMono.copy(fontSize = type.cardTitle.fontSize),
+                    color = KilnColors.textPrimary,
+                )
+                Spacer(Modifier.height(KilnSpace.s2))
+                Text(
+                    text = fmtPct(p.unrealizedPlPct),
+                    style = type.outcome,
+                    color = plColor(p.unrealizedPl),
+                )
+            }
+        }
+        if (!isLast) HairlineDivider(color = KilnColors.hairlineRow)
     }
 }
 
 @Composable
 internal fun ErrorBanner(message: String) {
+    val type = LocalKilnTypography.current
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(PortfolioColors.Bg)
-            .padding(22.dp),
+            .background(KilnColors.surfaceApp)
+            .padding(KilnSpace.padScreenH),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            "Couldn't load. $message",
-            style = LocalPortfolioTypography.current.bodySecondary,
-            color = PortfolioColors.Neg,
-        )
+        KilnCard(accent = CardAccent.Danger, padded = true) {
+            Text(
+                text = "Couldn't load",
+                style = type.rowTitle,
+                color = KilnColors.textPrimary,
+            )
+            Spacer(Modifier.height(KilnSpace.s2))
+            Text(
+                text = message,
+                style = type.smallBody,
+                color = KilnColors.dangerText,
+            )
+        }
     }
 }
-
-/**
- * Adds a 1px [PortfolioColors.Line] to the bottom of the receiver. Cheaper
- * than wrapping every section in a Surface with a border modifier and
- * matches the handoff's "section gaps via top/bottom borders, not large
- * margins" rule.
- */
-internal fun Modifier.drawBottomLine(color: Color = PortfolioColors.Line): Modifier =
-    this.drawBehind {
-        val y = size.height
-        drawLine(
-            color = color,
-            start = Offset(0f, y),
-            end = Offset(size.width, y),
-            strokeWidth = 1f,
-        )
-    }

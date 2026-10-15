@@ -26,7 +26,7 @@ import com.claudeportfolio.app.ui.screens.MemoScreen
 import com.claudeportfolio.app.ui.screens.PortfolioScreen
 import com.claudeportfolio.app.ui.screens.RunDetailScreen
 import com.claudeportfolio.app.ui.screens.SettingsScreen
-import com.claudeportfolio.app.ui.theme.PortfolioColors
+import com.claudeportfolio.app.ui.theme.KilnColors
 import kotlinx.coroutines.launch
 
 private const val TABS_ROUTE = "tabs"
@@ -86,7 +86,7 @@ fun RootScreen(initialTab: Tab? = null) {
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(PortfolioColors.Bg),
+            .background(KilnColors.surfaceApp),
     ) {
         PortfolioAppBar(
             eyebrow = activeEyebrow,

@@ -1,29 +1,28 @@
 package com.claudeportfolio.app.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.claudeportfolio.app.ui.theme.LocalPortfolioTypography
-import com.claudeportfolio.app.ui.theme.PortfolioColors
+import com.claudeportfolio.app.ui.theme.KilnColors
+import com.claudeportfolio.app.ui.theme.KilnSpace
+import com.claudeportfolio.app.ui.theme.LocalKilnTypography
 
 /**
- * The five top-level tabs the bottom nav switches between.
+ * The five top-level tabs.
  *
- * Order is fixed by the handoff: Portfolio · Last run · Memo · History · Settings.
- * `route` is the nav-graph route; `label` is what shows under the icon.
+ * Order is fixed: Portfolio · Last run · Memo · History · Settings.
  */
 enum class Tab(val route: String, val label: String) {
     Portfolio("portfolio", "Portfolio"),
@@ -34,12 +33,16 @@ enum class Tab(val route: String, val label: String) {
 }
 
 /**
- * Custom 5-tab bottom nav. Per handoff:
- *   - 5 columns, equal width
- *   - Icon (22×22) over a 10sp label
- *   - Active: full-Fg color, label weight 600. Inactive: Dim.
- *   - Top border: 1px Line. Background: Bg. Padding: 6 4 4.
- *   - No selected indicator pill (intentional — quieter design).
+ * Bottom nav, Kiln-styled.
+ *
+ * Kiln's desktop equivalent is a 64px icon rail with 10px-radius items; this
+ * is its phone form. The active tab is clay — Kiln reserves its one saturated
+ * colour for "the live thing", and which tab you are on qualifies. Inactive
+ * is [KilnColors.textTertiary].
+ *
+ * There is no selected-indicator pill and no ripple: pills in Kiln report
+ * state on content, not navigation chrome, and the system has no entrance
+ * animations by design.
  */
 @Composable
 fun PortfolioBottomNav(
@@ -47,21 +50,26 @@ fun PortfolioBottomNav(
     onSelect: (Tab) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
+    Column(
         modifier = modifier
             .fillMaxWidth()
-            .background(PortfolioColors.Bg)
-            .border(width = 1.dp, color = PortfolioColors.Line)
-            .padding(start = 4.dp, end = 4.dp, top = 6.dp, bottom = 4.dp),
-        horizontalArrangement = Arrangement.SpaceEvenly,
+            .background(KilnColors.surfaceChrome),
     ) {
-        for (tab in Tab.entries) {
-            BottomNavItem(
-                tab = tab,
-                selected = tab == active,
-                onClick = { onSelect(tab) },
-                modifier = Modifier.weight(1f),
-            )
+        HairlineDivider(color = KilnColors.hairlineStructural)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = KilnSpace.s3, vertical = KilnSpace.s4),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+        ) {
+            for (tab in Tab.entries) {
+                BottomNavItem(
+                    tab = tab,
+                    selected = tab == active,
+                    onClick = { onSelect(tab) },
+                    modifier = Modifier.weight(1f),
+                )
+            }
         }
     }
 }
@@ -73,19 +81,21 @@ private fun BottomNavItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val type = LocalPortfolioTypography.current
-    val color = if (selected) PortfolioColors.Fg else PortfolioColors.Dim
+    val type = LocalKilnTypography.current
+    val color = if (selected) KilnColors.accentHover else KilnColors.textTertiary
     val interactionSource = remember { MutableInteractionSource() }
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
         modifier = modifier
+            .heightIn(min = KilnSpace.hitMobile)
             .clickable(
                 interactionSource = interactionSource,
-                indication = null, // no ripple — the design is quiet
+                indication = null,
                 onClick = onClick,
             )
-            .padding(vertical = 4.dp),
+            .padding(vertical = KilnSpace.s4),
     ) {
         when (tab) {
             Tab.Portfolio -> PortfolioIcon(color)
@@ -96,11 +106,9 @@ private fun BottomNavItem(
         }
         Text(
             text = tab.label,
-            style = type.microLabel.copy(
-                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-            ),
+            style = type.outcome,
             color = color,
-            modifier = Modifier.padding(top = 4.dp),
+            modifier = Modifier.padding(top = 3.dp),
         )
     }
 }

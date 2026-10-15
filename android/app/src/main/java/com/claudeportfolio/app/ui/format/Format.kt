@@ -68,11 +68,34 @@ fun fmtPct(n: Double?, sign: Boolean = true, decimals: Int = 2): String {
     return "%s%.${decimals}f%%".format(LOC, s, abs(v))
 }
 
-/** "1,234" — used for share counts and similar. */
+/** "1,234" — used for counts and similar. */
 fun fmtNum(n: Double?, decimals: Int = 0): String {
     if (n == null) return "—"
     val pattern = "%,.${decimals}f"
     return pattern.format(LOC, n)
+}
+
+/**
+ * Share quantity, for an account that holds nothing but fractional
+ * positions.
+ *
+ * This exists because the screens used to print `qty.toInt()`, which
+ * rendered every single holding in this portfolio as "0 sh" — the largest
+ * position is 0.0687 shares of GOOGL. Fractions below 1 keep enough
+ * significant digits to be meaningful without printing Alpaca's full
+ * nine-decimal precision; whole-ish counts stay compact.
+ */
+fun fmtShares(qty: Double?): String {
+    if (qty == null) return "—"
+    val a = abs(qty)
+    val digits = when {
+        a == 0.0 -> 0
+        a >= 100 -> 0
+        a >= 1 -> 2
+        a >= 0.01 -> 4
+        else -> 6
+    }
+    return "%,.${digits}f".format(LOC, qty)
 }
 
 /** "May 3" */

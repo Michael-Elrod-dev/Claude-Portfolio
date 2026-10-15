@@ -8,15 +8,18 @@ package com.claudeportfolio.app.ui.screens
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Text
@@ -30,32 +33,44 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.claudeportfolio.app.data.model.Recommendation
 import com.claudeportfolio.app.data.model.RunSummary
 import com.claudeportfolio.app.ui.LocalApi
 import com.claudeportfolio.app.ui.LocalEyebrows
 import com.claudeportfolio.app.ui.LocalRefreshTick
 import com.claudeportfolio.app.ui.UiState
+import com.claudeportfolio.app.ui.components.KilnCard
+import com.claudeportfolio.app.ui.components.KilnChip
+import com.claudeportfolio.app.ui.components.KilnEmptyState
+import com.claudeportfolio.app.ui.components.KilnPill
+import com.claudeportfolio.app.ui.components.KilnStatTile
+import com.claudeportfolio.app.ui.components.LastRunSkeleton
+import com.claudeportfolio.app.ui.components.SectionLabel
+import com.claudeportfolio.app.ui.components.Tone
 import com.claudeportfolio.app.ui.format.fmtDateEyebrow
 import com.claudeportfolio.app.ui.format.fmtNum
+import com.claudeportfolio.app.ui.format.fmtShares
 import com.claudeportfolio.app.ui.format.fmtUsd
 import com.claudeportfolio.app.ui.rememberLoadable
-import com.claudeportfolio.app.ui.theme.LocalPortfolioTypography
-import com.claudeportfolio.app.ui.theme.PortfolioColors
+import com.claudeportfolio.app.ui.theme.KilnColors
+import com.claudeportfolio.app.ui.theme.KilnSpace
+import com.claudeportfolio.app.ui.theme.LocalKilnTypography
+import com.claudeportfolio.app.ui.theme.metaMonoSmall
+import com.claudeportfolio.app.ui.theme.smallBody
 
 /**
- * Last run screen. Sections per the handoff:
- *   - Summary block (eyebrow + summary paragraph + flex-wrap stats row)
- *   - Recommendations list with tap-to-expand rows
+ * Last run, in Kiln.
  *
- * Used by both the bottom-nav "Last run" tab and the History → run detail
- * push. The shared body composable [RunBody] is parameterized by the
- * RunSummary so each entry point just supplies different data.
+ * Shared by the "Last run" tab and the History → run-detail push, which is
+ * why [RunBody] takes the summary rather than fetching it.
+ *
+ * One colour decision worth recording: BUY/SELL is rendered as a NEUTRAL
+ * chip, not a green/red one. Direction is not an outcome — a sell is not a
+ * failure — and Kiln's status hues mean "succeeded / check this / failed".
+ * Letting green also mean "buy" would make one colour carry two unrelated
+ * signals, so the coloured pill on each row is the execution status and the
+ * direction stays monochrome.
  */
 @Composable
 fun LastRunScreen() {
@@ -65,14 +80,15 @@ fun LastRunScreen() {
     var refreshKey by remember { mutableIntStateOf(0) }
     var isRefreshing by remember { mutableStateOf(false) }
     val state = rememberLoadable(api, tick, refreshKey) { api.getRunsLatest() }
+
     LaunchedEffect(state) {
         if (state !is UiState.Loading) isRefreshing = false
         if (state is UiState.Ready) {
             val run = state.data
-            eyebrows["LastRun"] = if (run == null) "—"
-                else fmtDateEyebrow(run.runDate)
+            eyebrows["LastRun"] = if (run == null) "—" else fmtDateEyebrow(run.runDate)
         }
     }
+
     PullToRefreshBox(
         isRefreshing = isRefreshing,
         onRefresh = {
@@ -82,11 +98,18 @@ fun LastRunScreen() {
         modifier = Modifier.fillMaxSize(),
     ) {
         when (state) {
-            is UiState.Loading -> com.claudeportfolio.app.ui.components.LastRunSkeleton()
-            is UiState.Error   -> ErrorBanner(state.message)
-            is UiState.Ready   -> {
+            is UiState.Loading -> LastRunSkeleton()
+            is UiState.Error -> ErrorBanner(state.message)
+            is UiState.Ready -> {
                 val run = state.data
-                if (run == null) EmptyMessage("No runs yet.") else RunBody(run)
+                if (run == null) {
+                    ScreenEmpty(
+                        headline = "No runs yet",
+                        copy = "The pipeline archives a record every Monday and Thursday.",
+                    )
+                } else {
+                    RunBody(run)
+                }
             }
         }
     }
@@ -94,195 +117,236 @@ fun LastRunScreen() {
 
 @Composable
 fun RunBody(run: RunSummary) {
-    val type = LocalPortfolioTypography.current
+    val type = LocalKilnTypography.current
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(PortfolioColors.Bg)
-            .padding(start = 22.dp, end = 22.dp, top = 8.dp, bottom = 24.dp),
+            .background(KilnColors.surfaceApp),
+        contentPadding = PaddingValues(
+            start = KilnSpace.padScreenH,
+            end = KilnSpace.padScreenH,
+            top = KilnSpace.padScreenV,
+            bottom = KilnSpace.s18,
+        ),
     ) {
-        // ── Summary block ─────────────────────────────────────────────
-        item {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 8.dp, bottom = 18.dp)
-                    .drawBottomLine(),
-            ) {
-                Text("SUMMARY", style = type.eyebrow, color = PortfolioColors.Dim)
-                if (!run.summary.isNullOrBlank()) {
+        // ── Analyst summary ──────────────────────────────────────────────
+        if (!run.summary.isNullOrBlank()) {
+            item {
+                KilnCard(padded = true) {
+                    SectionLabel("Analyst summary")
+                    Spacer(Modifier.height(KilnSpace.s6))
+                    // Prose a model wrote, so sans, not mono.
                     Text(
                         text = run.summary,
-                        style = type.body.copy(lineHeight = 21.sp),
-                        color = PortfolioColors.Fg,
-                        modifier = Modifier.padding(top = 8.dp),
+                        style = type.body,
+                        color = KilnColors.textBody,
                     )
                 }
-                FlowRow(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 18.dp),
-                    horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Stat("RECS", fmtNum(run.recommendations.size.toDouble()))
-                    Stat("EXECUTED", fmtNum(run.executor.executed.toDouble()))
-                    Stat("QUEUED", fmtNum(run.executor.queuedForReview.toDouble()))
-                    Stat("FAILED", fmtNum(run.executor.failed.toDouble()))
-                    Stat("SEARCHES", fmtNum((run.analystMeta.webSearchesUsed ?: 0).toDouble()))
-                    Stat("COST", fmtCost(run.analystMeta.inputTokens, run.analystMeta.outputTokens))
-                }
+                Spacer(Modifier.height(KilnSpace.gapSection))
             }
         }
 
-        // ── Recommendations section header ──────────────────────────
+        // ── Run stats ────────────────────────────────────────────────────
         item {
-            Text(
-                text = "${run.recommendations.size} RECOMMENDATIONS",
-                style = type.eyebrow,
-                color = PortfolioColors.Dim,
-                modifier = Modifier.padding(top = 18.dp, bottom = 4.dp),
+            Column {
+                Row(horizontalArrangement = Arrangement.spacedBy(KilnSpace.gapGrid)) {
+                    KilnStatTile("Recs", fmtNum(run.recommendations.size.toDouble()), Modifier.weight(1f))
+                    KilnStatTile(
+                        "Executed",
+                        fmtNum(run.executor.executed.toDouble()),
+                        Modifier.weight(1f),
+                        valueColor = if (run.executor.executed > 0) {
+                            KilnColors.successText
+                        } else KilnColors.textPrimary,
+                    )
+                    KilnStatTile(
+                        "Failed",
+                        fmtNum(run.executor.failed.toDouble()),
+                        Modifier.weight(1f),
+                        valueColor = if (run.executor.failed > 0) {
+                            KilnColors.dangerText
+                        } else KilnColors.textPrimary,
+                    )
+                }
+                Spacer(Modifier.height(KilnSpace.gapGrid))
+                Row(horizontalArrangement = Arrangement.spacedBy(KilnSpace.gapGrid)) {
+                    KilnStatTile(
+                        "Searches",
+                        fmtNum((run.analystMeta.webSearchesUsed ?: 0).toDouble()),
+                        Modifier.weight(1f),
+                        sub = "of 15",
+                    )
+                    KilnStatTile(
+                        "Duration",
+                        "${run.durationSec}s",
+                        Modifier.weight(1f),
+                        sub = "of 900s",
+                    )
+                    KilnStatTile(
+                        "Cost",
+                        fmtCost(run.analystMeta.inputTokens, run.analystMeta.outputTokens),
+                        Modifier.weight(1f),
+                        sub = run.analystMeta.model?.substringAfter("claude-"),
+                    )
+                }
+            }
+            Spacer(Modifier.height(KilnSpace.gapSection))
+        }
+
+        // ── Recommendations ──────────────────────────────────────────────
+        item {
+            SectionLabel(
+                "${run.recommendations.size} " +
+                    if (run.recommendations.size == 1) "recommendation" else "recommendations",
+                modifier = Modifier.padding(bottom = KilnSpace.s7),
             )
         }
 
-        // ── Recommendation rows ─────────────────────────────────────
-        items(run.recommendations) { rec -> RecommendationRow(rec) }
+        if (run.recommendations.isEmpty()) {
+            item {
+                KilnCard {
+                    KilnEmptyState(
+                        headline = "No trades",
+                        copy = "The analyst chose to hold everything this run.",
+                    )
+                }
+            }
+        } else {
+            items(run.recommendations) { rec ->
+                RecommendationCard(rec)
+                Spacer(Modifier.height(KilnSpace.gapGrid))
+            }
+        }
     }
 }
 
 @Composable
-private fun RecommendationRow(rec: Recommendation) {
-    val type = LocalPortfolioTypography.current
+private fun RecommendationCard(rec: Recommendation) {
+    val type = LocalKilnTypography.current
     var expanded by remember(rec) { mutableStateOf(false) }
+    val interaction = remember { MutableInteractionSource() }
+    val (statusLabel, statusTone) = statusLabelAndTone(rec.status)
 
-    val actionColor = if (rec.action.equals("buy", ignoreCase = true))
-        PortfolioColors.Pos else PortfolioColors.Neg
-
-    val (statusLabel, statusColor) = statusLabelAndColor(rec.status)
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { expanded = !expanded }
-            .padding(vertical = 14.dp)
-            .drawBottomLine()
-            .animateContentSize(),
+    KilnCard(
+        accent = if (rec.status == "failed") com.claudeportfolio.app.ui.components.CardAccent.Danger
+                 else com.claudeportfolio.app.ui.components.CardAccent.None,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            // Col 1 — action (BUY/SELL)
-            Text(
-                text = rec.action.uppercase(),
-                style = type.microLabel.copy(fontWeight = FontWeight.SemiBold),
-                color = actionColor,
-                modifier = Modifier
-                    .padding(end = 12.dp)
-                    .widthIn(min = 28.dp),
-            )
-            // Col 2 — ticker + amount, then rationale first sentence
-            Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.Bottom) {
-                    Text(rec.ticker,
-                         style = type.sectionTicker, color = PortfolioColors.Fg)
-                    Text("  ${formatAmount(rec)}",
-                         style = type.caption, color = PortfolioColors.Dim,
-                         modifier = Modifier.padding(start = 6.dp))
-                }
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(
+                    interactionSource = interaction,
+                    indication = null,
+                ) { expanded = !expanded }
+                .padding(KilnSpace.padCard)
+                .animateContentSize(),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                KilnChip(rec.action, tone = Tone.Neutral)
+                Spacer(Modifier.width(KilnSpace.s7))
                 Text(
-                    text = rec.rationale.firstSentence(),
-                    style = type.caption,
-                    color = PortfolioColors.Dim,
-                    maxLines = if (expanded) Int.MAX_VALUE else 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 4.dp),
+                    text = rec.ticker,
+                    style = type.identity.copy(
+                        fontFamily = type.metaMono.fontFamily,
+                        letterSpacing = type.status.letterSpacing,
+                    ),
+                    color = KilnColors.textPrimary,
                 )
+                Spacer(Modifier.width(KilnSpace.s4))
+                Text(
+                    text = formatAmount(rec),
+                    style = type.metaMonoSmall,
+                    color = KilnColors.textSecondary,
+                    modifier = Modifier.weight(1f),
+                )
+                KilnPill(statusLabel, tone = statusTone)
             }
-            // Col 3 — status chip
-            Text(
-                text = statusLabel,
-                style = type.microLabel,
-                color = statusColor,
-                modifier = Modifier.padding(start = 8.dp),
-            )
-        }
 
-        // Expanded body — full rationale + mono meta line
-        if (expanded) {
-            Column(modifier = Modifier.padding(start = 40.dp, top = 12.dp)) {
-                Text(
-                    text = rec.rationale,
-                    style = type.bodySecondary.copy(lineHeight = 21.sp),
-                    color = PortfolioColors.Fg,
-                )
+            Spacer(Modifier.height(KilnSpace.s7))
+            Text(
+                text = if (expanded) rec.rationale else rec.rationale.firstSentence(),
+                style = type.smallBody,
+                color = KilnColors.textSecondary,
+                maxLines = if (expanded) Int.MAX_VALUE else 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+
+            if (expanded) {
+                Spacer(Modifier.height(KilnSpace.s8))
+                com.claudeportfolio.app.ui.components.HairlineDivider()
+                Spacer(Modifier.height(KilnSpace.s8))
                 Text(
                     text = monoMetaFor(rec),
-                    style = type.mono,
-                    color = PortfolioColors.Dim,
-                    modifier = Modifier.padding(top = 8.dp),
+                    style = type.metaMonoSmall,
+                    color = KilnColors.textFaint,
                 )
+                if (!rec.reason.isNullOrBlank()) {
+                    Spacer(Modifier.height(KilnSpace.s4))
+                    Text(
+                        text = rec.reason,
+                        style = type.metaMonoSmall,
+                        color = if (rec.status == "failed") {
+                            KilnColors.dangerText
+                        } else KilnColors.textFaint,
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun Stat(label: String, value: String) {
-    val type = LocalPortfolioTypography.current
-    Column {
-        Text(label, style = type.eyebrow, color = PortfolioColors.Dim)
-        Text(
-            value,
-            style = type.body.copy(fontWeight = FontWeight.Medium),
-            color = PortfolioColors.Fg,
-            modifier = Modifier.padding(top = 2.dp),
-        )
-    }
-}
-
-@Composable
-private fun EmptyMessage(text: String) {
+internal fun ScreenEmpty(headline: String, copy: String? = null) {
     Box(
-        modifier = Modifier.fillMaxSize().background(PortfolioColors.Bg),
+        modifier = Modifier
+            .fillMaxSize()
+            .background(KilnColors.surfaceApp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(text,
-             style = LocalPortfolioTypography.current.body,
-             color = PortfolioColors.Dim)
+        KilnEmptyState(headline = headline, copy = copy)
     }
 }
 
-private fun statusLabelAndColor(status: String): Pair<String, Color> = when (status) {
-    "executed"          -> "EXECUTED" to PortfolioColors.Pos
-    "queued_for_review" -> "QUEUED"   to PortfolioColors.Amber
-    "skipped"           -> "SKIPPED"  to PortfolioColors.Dim
-    "failed"            -> "FAILED"   to PortfolioColors.Neg
-    "already_submitted" -> "ALREADY"  to PortfolioColors.Dim
-    else                 -> status.uppercase() to PortfolioColors.Dim
+private fun statusLabelAndTone(status: String): Pair<String, Tone> = when (status) {
+    "executed" -> "EXECUTED" to Tone.Success
+    "queued_for_review" -> "QUEUED" to Tone.Warning
+    "skipped" -> "SKIPPED" to Tone.Neutral
+    "failed" -> "FAILED" to Tone.Danger
+    "already_submitted" -> "PRIOR RUN" to Tone.Neutral
+    else -> status.uppercase() to Tone.Neutral
 }
 
 private fun formatAmount(rec: Recommendation): String = when (rec.amount.type) {
-    "dollars" -> fmtUsd(rec.amount.value, decimals = 0)
-    "shares"  -> "${fmtNum(rec.amount.value)} sh"
+    "dollars" -> fmtUsd(rec.amount.value, decimals = 2)
+    "shares" -> "${fmtShares(rec.amount.value)} sh"
     "percent" -> "${rec.amount.value.toInt()}%"
-    else      -> rec.amount.value.toString()
+    else -> rec.amount.value.toString()
 }
 
 private fun monoMetaFor(rec: Recommendation): String {
     val sizing = rec.sizing
     val sizingPart = when {
         sizing == null -> "sizing → —"
-        sizing.kind == "qty"      -> "sizing → qty ${fmtNum(sizing.value, decimals = 4)}"
+        sizing.kind == "qty" -> "sizing → qty ${fmtNum(sizing.value, decimals = 6)}"
+        sizing.kind == "close" -> "sizing → close position"
         sizing.kind == "notional" -> "sizing → notional ${"%.2f".format(sizing.value ?: 0.0)}"
-        sizing.kind == "error"    -> "sizing → error ${sizing.message ?: "?"}"
+        sizing.kind == "error" -> "sizing → error ${sizing.message ?: "?"}"
         else -> "sizing → ${sizing.kind}"
     }
     val thesis = rec.linkedThesis ?: "—"
-    return "$sizingPart · linkedThesis $thesis · confidence ${rec.confidence}"
+    return "$sizingPart · thesis $thesis · confidence ${rec.confidence}"
 }
 
+/**
+ * Per-run Analyst cost. Opus 5.5 list pricing: $4/M input, $20/M output.
+ *
+ * This covers the Analyst call only — the MemoUpdater's usage is not archived
+ * in the run record, so the real per-run bill is roughly double this plus
+ * about $0.12 of web search.
+ */
 private fun fmtCost(input: Int?, output: Int?): String {
-    // Rough Opus 5 list pricing: $5/M input, $25/M output (same as 4.8).
-    val cost = ((input ?: 0) * 5.0 + (output ?: 0) * 25.0) / 1_000_000.0
+    val cost = ((input ?: 0) * 4.0 + (output ?: 0) * 20.0) / 1_000_000.0
     return "$" + "%.2f".format(cost)
 }
 
@@ -290,4 +354,3 @@ private fun String.firstSentence(): String {
     val end = indexOfAny(charArrayOf('.', '!', '?'))
     return if (end == -1) this else substring(0, end + 1)
 }
-

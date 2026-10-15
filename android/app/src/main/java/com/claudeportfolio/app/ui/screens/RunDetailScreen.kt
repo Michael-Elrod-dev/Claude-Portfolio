@@ -43,10 +43,20 @@ fun RunDetailScreen(runDate: String) {
     ) {
         when (state) {
             is UiState.Loading -> com.claudeportfolio.app.ui.components.LastRunSkeleton()
-            is UiState.Error   -> ErrorBanner(state.message)
-            is UiState.Ready   -> {
+            is UiState.Error -> ErrorBanner(state.message)
+            is UiState.Ready -> {
                 val run = state.data
-                if (run == null) ErrorBanner("No run for $runDate.") else RunBody(run)
+                if (run == null) {
+                    // A missing record is expected, not an error: the runs
+                    // table has a 30-day TTL, so an old deep link outlives
+                    // its row.
+                    ScreenEmpty(
+                        headline = "Run not archived",
+                        copy = "No record for $runDate. Run history expires after 30 days.",
+                    )
+                } else {
+                    RunBody(run)
+                }
             }
         }
     }

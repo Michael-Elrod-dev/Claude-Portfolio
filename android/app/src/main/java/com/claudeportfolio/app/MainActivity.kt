@@ -40,7 +40,7 @@ import com.claudeportfolio.app.ui.LocalRefreshTick
 import com.claudeportfolio.app.ui.RootScreen
 import com.claudeportfolio.app.ui.components.Tab
 import com.claudeportfolio.app.ui.theme.ClaudePortfolioTheme
-import com.claudeportfolio.app.ui.theme.PortfolioColors
+import com.claudeportfolio.app.ui.theme.KilnColors
 import com.google.firebase.FirebaseApp
 import com.google.firebase.messaging.FirebaseMessaging
 import kotlinx.coroutines.tasks.await
@@ -104,9 +104,9 @@ class MainActivity : ComponentActivity() {
                 Surface(
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(PortfolioColors.Bg)
+                        .background(KilnColors.surfaceApp)
                         .windowInsetsPadding(WindowInsets.systemBars),
-                    color = PortfolioColors.Bg,
+                    color = KilnColors.surfaceApp,
                 ) {
                     val cfg = config ?: return@Surface  // splash: empty Bg
                     AppContent(cfg, configStore)

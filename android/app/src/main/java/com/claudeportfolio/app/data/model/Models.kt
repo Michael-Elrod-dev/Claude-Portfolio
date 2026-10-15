@@ -28,6 +28,11 @@ data class Account(
     val lastEquity: Double,
     val dayPl: Double,
     val dayPlPct: Double,
+    // 7-day window. Added when the backend started serving it; nullable
+    // because _windowOrNull suppresses any window that degenerates into
+    // all-time on an account younger than the window.
+    val weekPl: Double? = null,
+    val weekPlPct: Double? = null,
     val monthPl: Double? = null,
     val monthPlPct: Double? = null,
     val yearPl: Double? = null,
@@ -128,6 +133,17 @@ data class Recommendation(
     val status: String,
     val orderId: String? = null,
     val sizing: Sizing? = null,
+    /**
+     * Why a recommendation ended up with its status — the Alpaca error on a
+     * failure, the pre-flight check on a skip.
+     *
+     * The pipeline has always archived this (`lambda/handler.js` builds it
+     * into every enriched rec) but the app had no field for it, so the one
+     * piece of information you actually want when a trade fails was being
+     * dropped on the floor. Every failure in the last month reads
+     * "HTTP 403: insufficient buying power".
+     */
+    val reason: String? = null,
 )
 
 @Serializable
@@ -170,8 +186,13 @@ data class RunListItem(
     val recCount: Int,
     val executor: ExecutorTally,
     val briefingErrors: List<BriefingError> = emptyList(),
-    /** Day P/L percent for the row's right-hand column. Often null. */
-    val dayPlPct: Double? = null,
+    // There used to be a `dayPlPct` here for the row's right-hand column,
+    // documented as "often null". It was ALWAYS null: `compactRow` in
+    // api/routes/runs.js never sends it and the archived run records never
+    // contained it, so the column rendered an em dash for every row ever
+    // shown. Removed rather than left as a field that invites someone to
+    // trust it — the History rows now show the executor tally, which is
+    // real data the endpoint actually returns.
 )
 
 // ── Briefing inspector ──────────────────────────────────────────────────

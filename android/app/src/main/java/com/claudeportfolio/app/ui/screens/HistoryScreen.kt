@@ -3,17 +3,20 @@
 package com.claudeportfolio.app.ui.screens
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
@@ -25,28 +28,37 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import com.claudeportfolio.app.data.model.RunListItem
 import com.claudeportfolio.app.ui.LocalApi
 import com.claudeportfolio.app.ui.LocalEyebrows
 import com.claudeportfolio.app.ui.LocalRefreshTick
 import com.claudeportfolio.app.ui.UiState
+import com.claudeportfolio.app.ui.components.CardAccent
+import com.claudeportfolio.app.ui.components.KilnCard
+import com.claudeportfolio.app.ui.components.KilnChip
+import com.claudeportfolio.app.ui.components.HistorySkeleton
+import com.claudeportfolio.app.ui.components.SectionLabel
+import com.claudeportfolio.app.ui.components.Tone
 import com.claudeportfolio.app.ui.format.fmtDateLong
-import com.claudeportfolio.app.ui.format.fmtPct
 import com.claudeportfolio.app.ui.rememberLoadable
-import com.claudeportfolio.app.ui.theme.LocalPortfolioTypography
-import com.claudeportfolio.app.ui.theme.PortfolioColors
+import com.claudeportfolio.app.ui.theme.KilnColors
+import com.claudeportfolio.app.ui.theme.KilnSpace
+import com.claudeportfolio.app.ui.theme.LocalKilnTypography
+import com.claudeportfolio.app.ui.theme.metaMonoSmall
+import com.claudeportfolio.app.ui.theme.smallBody
 
 /**
- * History screen — list of weekly runs. Tapping a row pushes RunDetail.
+ * History, in Kiln. One card per archived run; tapping pushes RunDetail.
  *
- * Each row is a 2-column grid: left has the date (with a "NO ACTIONS"
- * chip if recCount==0) and the summary; right has the rec count and the
- * day P/L percentage colored green/red.
+ * The right-hand column used to show a day-P/L percentage. That field was
+ * never populated by the API, so it rendered an em dash on every row for the
+ * life of the screen; it now shows the executor tally, which the endpoint
+ * really does return. A run with failures gets a danger-bordered card so a
+ * bad week is visible without opening it.
+ *
+ * Only ~9 runs are ever present (the DynamoDB table has a 30-day TTL), so
+ * this list is short by construction.
  */
 @Composable
 fun HistoryScreen(onRunClick: (runDate: String) -> Unit) {
@@ -56,13 +68,16 @@ fun HistoryScreen(onRunClick: (runDate: String) -> Unit) {
     var refreshKey by remember { mutableIntStateOf(0) }
     var isRefreshing by remember { mutableStateOf(false) }
     val state = rememberLoadable(api, tick, refreshKey) { api.getRunsList(limit = 20) }
+
     LaunchedEffect(state) {
         if (state !is UiState.Loading) isRefreshing = false
         if (state is UiState.Ready) {
             val n = state.data.size
-            eyebrows["History"] = if (n == 0) "NO RUNS YET" else "$n WEEKLY RUN${if (n == 1) "" else "S"}"
+            eyebrows["History"] =
+                if (n == 0) "NO RUNS YET" else "$n RUN${if (n == 1) "" else "S"} · 30-DAY TTL"
         }
     }
+
     PullToRefreshBox(
         isRefreshing = isRefreshing,
         onRefresh = {
@@ -72,115 +87,106 @@ fun HistoryScreen(onRunClick: (runDate: String) -> Unit) {
         modifier = Modifier.fillMaxSize(),
     ) {
         when (state) {
-            is UiState.Loading -> com.claudeportfolio.app.ui.components.HistorySkeleton()
-            is UiState.Error   -> ErrorBanner(state.message)
-            is UiState.Ready   -> HistoryBody(state.data, onRunClick)
+            is UiState.Loading -> HistorySkeleton()
+            is UiState.Error -> ErrorBanner(state.message)
+            is UiState.Ready -> HistoryBody(state.data, onRunClick)
         }
     }
 }
 
 @Composable
 private fun HistoryBody(runs: List<RunListItem>, onClick: (String) -> Unit) {
-    val type = LocalPortfolioTypography.current
     if (runs.isEmpty()) {
-        EmptyMessage("No runs yet.")
+        ScreenEmpty(
+            headline = "No runs archived",
+            copy = "Records appear after a scheduled run and expire 30 days later.",
+        )
         return
     }
 
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
-            .background(PortfolioColors.Bg)
-            .padding(horizontal = 22.dp),
+            .background(KilnColors.surfaceApp),
+        contentPadding = PaddingValues(
+            start = KilnSpace.padScreenH,
+            end = KilnSpace.padScreenH,
+            top = KilnSpace.padScreenV,
+            bottom = KilnSpace.s18,
+        ),
     ) {
-        item {
-            Text(
-                text = "Tap a row to see the full run.",
-                style = type.bodySecondary,
-                color = PortfolioColors.Dim,
-                modifier = Modifier.padding(top = 8.dp, bottom = 4.dp),
-            )
+        items(runs, key = { it.runDate }) { run ->
+            HistoryCard(run, onClick)
+            Spacer(Modifier.height(KilnSpace.gapGrid))
         }
-        items(runs, key = { it.runDate }) { run -> HistoryRow(run, onClick) }
     }
 }
 
 @Composable
-private fun HistoryRow(run: RunListItem, onClick: (String) -> Unit) {
-    val type = LocalPortfolioTypography.current
-    val plPos = (run.dayPlPct ?: 0.0) >= 0
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable { onClick(run.runDate) }
-            .padding(vertical = 14.dp)
-            .drawBottomLine(),
-        verticalAlignment = Alignment.Top,
-    ) {
-        Column(modifier = Modifier.weight(1f)) {
+private fun HistoryCard(run: RunListItem, onClick: (String) -> Unit) {
+    val type = LocalKilnTypography.current
+    val interaction = remember { MutableInteractionSource() }
+    val hadFailures = run.executor.failed > 0
+    val hadSourceErrors = run.briefingErrors.isNotEmpty()
+
+    KilnCard(accent = if (hadFailures) CardAccent.Danger else CardAccent.None) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable(interactionSource = interaction, indication = null) {
+                    onClick(run.runDate)
+                }
+                .padding(KilnSpace.padCard),
+        ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     text = fmtDateLong(run.runDate),
-                    style = type.body.copy(fontWeight = FontWeight.Medium, lineHeight = 21.sp),
-                    color = PortfolioColors.Fg,
+                    style = type.rowTitle,
+                    color = KilnColors.textPrimary,
+                    modifier = Modifier.weight(1f),
                 )
-                if (run.recCount == 0) {
-                    Text(
-                        text = "NO ACTIONS",
-                        style = type.microLabel,
-                        color = PortfolioColors.Dim,
-                        modifier = Modifier
-                            .padding(start = 8.dp)
-                            .clip(RoundedCornerShape(999.dp))
-                            .border(
-                                width = 1.dp,
-                                color = PortfolioColors.Line2,
-                                shape = RoundedCornerShape(999.dp),
-                            )
-                            .padding(horizontal = 8.dp, vertical = 2.dp),
-                    )
+                if (run.forced) {
+                    KilnChip("FORCED", tone = Tone.Accent)
+                    Spacer(Modifier.width(KilnSpace.gapChip))
                 }
+                Text(
+                    text = "${run.durationSec}s",
+                    style = type.metaMonoSmall,
+                    color = KilnColors.textFaint,
+                )
             }
+
             if (!run.summary.isNullOrBlank()) {
+                Spacer(Modifier.height(KilnSpace.s5))
                 Text(
                     text = run.summary,
-                    style = type.caption.copy(lineHeight = 18.sp),
-                    color = PortfolioColors.Dim,
+                    style = type.smallBody,
+                    color = KilnColors.textSecondary,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(top = 4.dp),
                 )
             }
-        }
-        Column(
-            horizontalAlignment = Alignment.End,
-            verticalArrangement = Arrangement.spacedBy(2.dp),
-            modifier = Modifier.padding(start = 12.dp),
-        ) {
-            Text(
-                text = "${run.recCount} recs",
-                style = type.caption,
-                color = PortfolioColors.Dim,
-            )
-            Text(
-                text = fmtPct(run.dayPlPct),
-                style = type.caption,
-                color = if (plPos) PortfolioColors.Pos else PortfolioColors.Neg,
-            )
-        }
-    }
-}
 
-@Composable
-private fun EmptyMessage(text: String) {
-    androidx.compose.foundation.layout.Box(
-        modifier = Modifier.fillMaxSize().background(PortfolioColors.Bg),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text,
-            style = LocalPortfolioTypography.current.body,
-            color = PortfolioColors.Dim,
-        )
+            Spacer(Modifier.height(KilnSpace.s8))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(KilnSpace.gapChip),
+            ) {
+                if (run.recCount == 0) {
+                    KilnChip("NO ACTIONS", tone = Tone.Neutral)
+                } else {
+                    KilnChip("${run.executor.executed} EXECUTED", tone = Tone.Success)
+                    if (hadFailures) {
+                        KilnChip("${run.executor.failed} FAILED", tone = Tone.Danger)
+                    }
+                    if (run.executor.skipped > 0) {
+                        KilnChip("${run.executor.skipped} SKIPPED", tone = Tone.Neutral)
+                    }
+                }
+                if (hadSourceErrors) {
+                    KilnChip("${run.briefingErrors.size} SOURCE ERR", tone = Tone.Warning)
+                }
+            }
+        }
     }
 }
