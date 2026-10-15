@@ -5,8 +5,8 @@ const SYSTEM_PROMPT = require('../prompts/memoUpdaterSystemPrompt');
 const buildUserPrompt = require('../prompts/buildMemoUpdaterUserPrompt');
 const { extractJsonFromMessage } = require('./parseResponse');
 
-const DEFAULT_MODEL = 'claude-opus-5';
-const DEFAULT_MAX_TOKENS = 16_000;
+const DEFAULT_MODEL = 'claude-opus-5-5';
+const DEFAULT_MAX_TOKENS = 32_000;
 const DEFAULT_EFFORT = 'high';
 
 /**
@@ -17,11 +17,16 @@ const DEFAULT_EFFORT = 'high';
  * Differences from Analyst:
  *   - No web search tool. Memo updates are a pure transformation over
  *     known inputs; the model has no need to fetch external context.
- *   - Lower max_tokens (8k). The output is a structured memo, not a
- *     research report. Memo size is bounded by the schema.
+ *   - Lower max_tokens (32k vs the Analyst's 64k). The output is a
+ *     structured memo, not a research report. This was 16k and came
+ *     uncomfortably close to truncating: output sat at 9.1-10.7k for
+ *     weeks, then jumped to 12.8k on 2026-10-15, and an earlier 8k cap
+ *     had already thrown once. max_tokens is a ceiling, not a spend, so
+ *     the headroom costs nothing.
  *   - effort: "high" rather than "xhigh". This is a bookkeeping task,
  *     not deep agentic reasoning — high is the better cost/quality
- *     balance here.
+ *     balance here. Keep it explicit: Opus 5.5 defaults to `medium`, so
+ *     removing this line would silently lower it.
  *
  * Same shape otherwise: streaming + finalMessage(), system prompt cached
  * as an ephemeral block, JSON extraction from the last text block.

@@ -512,11 +512,11 @@ trade recommendations. This is the brain of the pipeline.
 
 | Choice | Value | Rationale |
 |---|---|---|
-| Model | `claude-opus-5` | Most capable model for agentic / long-horizon work |
-| Thinking | `{type: "adaptive"}` | Also Opus 5's default when omitted — `budget_tokens` is removed and would 400 |
-| Effort | `xhigh` | Recommended setting on Opus 5 for coding/agentic workloads |
-| Max tokens | 32,000 | Comfortable headroom for thinking + multi-search reasoning + final output |
-| Web search | `web_search_20260209`, `max_uses: 15` | Caps catastrophic loops while leaving room for genuine research |
+| Model | `claude-opus-5-5` | Most capable model for agentic / long-horizon work; cheaper than Opus 5 ($4/$20 per MTok vs $5/$25) |
+| Thinking | `{type: "adaptive"}` | Opus 5.5's default when omitted — `disabled` and `budget_tokens` both 400 at every effort level |
+| Effort | `xhigh` | Must stay explicit: Opus 5.5 defaults to `medium`, a level below Opus 5's `high`, so omitting it silently shallows the reasoning |
+| Max tokens | 64,000 | A ceiling, not a spend. ~20k observed output, so the headroom is free and stops a long run truncating mid-JSON |
+| Web search | `web_search_20260209`, `max_uses: 20` | Caps catastrophic loops while leaving room for genuine research. Observed usage is 10–13; exhausting the budget silently ends the research with no error, so 15 was too close |
 | Streaming | Yes (`stream()` + `finalMessage()`) | Required since `max_tokens > 16k` would risk SDK HTTP timeouts |
 | Prompt cache | System prompt as ephemeral text block | System prompt is stable across runs, so weekly runs only pay full price for the user prompt + tool definitions |
 
@@ -543,13 +543,15 @@ trade recommendations. This is the brain of the pipeline.
 - **Markdown fence fallback.** Even with explicit instructions not to
   wrap output in markdown, models occasionally do. The parser strips
   ```` ```json ... ``` ```` fences before parsing as a defensive measure.
-- **Token budgets per run.** Empty briefing + cached system prompt is
-  ~5k input tokens. With a fully populated briefing and 15 web searches
-  pulling in news content, expect 50k–200k input tokens and 5k–30k
-  output tokens per run. At Opus 5 list pricing (~$5/M input, $25/M
-  output), that's roughly $0.50–$2.00 per weekly run — well below the
-  ~$10/year estimate from prior planning, but worth tracking once we
-  have real telemetry.
+- **Measured cost per run (9 runs, 2026-09-17 → 2026-10-15).** Analyst
+  14.4k–26.9k input and 7.4k–22.2k output, averaging **$0.46/run** at
+  Opus 5 pricing. MemoUpdater output averages 10.0k (max 12.8k) for
+  about **$0.35/run**. Web search runs 10–13 calls at $10/1k, so
+  **~$0.12/run**. Total **~$0.93/run, ~$2/week, ~$100/year** — the
+  Opus 5.5 bump takes roughly 20% off the token share of that.
+  Worth stating plainly: on a ~$132 account this spend exceeds the
+  returns, so the system is an experiment, and the variable worth
+  optimizing is decision quality rather than cost.
 - **The hard structural rules in the system prompt are guardrails, not
   guidance.** The four rules (US equities only, 30% position cap, no new
   positions inside the earnings window, no penny stocks) prevent
@@ -622,11 +624,14 @@ memo that gets written back to S3 (or the local file in development).
 - **No web search.** The MemoUpdater is a pure transformation over known
   inputs (prior memo + briefing + recommendations). No external research
   is needed, which makes the call faster and cheaper than the Analyst's.
-- **Lower max_tokens (8k).** Memo output is bounded by the schema, not
-  open-ended. We don't need 32k of headroom.
+- **Lower max_tokens (32k) than the Analyst's 64k.** Memo output is
+  bounded by the schema, not open-ended. It was 16k and came close to
+  truncating — output sat at 9.1–10.7k for weeks then jumped to 12.8k
+  on 2026-10-15, and an earlier 8k cap had already thrown once.
 - **`effort: "high"`** rather than `xhigh`. Bookkeeping is not deep
   agentic reasoning — `high` is the better cost/quality balance for a
-  schema-bounded transformation.
+  schema-bounded transformation. Keep it explicit; Opus 5.5 would
+  otherwise default to `medium`.
 - **Output schema must match what `MemoSource` reads back.** If you
   change the memo schema in `memoUpdaterSystemPrompt.js`, also update
   `MemoSource._normalize()`. The contract is: MemoUpdater writes,

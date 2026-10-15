@@ -5,9 +5,9 @@ const SYSTEM_PROMPT = require('../prompts/analystSystemPrompt');
 const buildUserPrompt = require('../prompts/buildAnalystUserPrompt');
 const { parseRecommendations } = require('./parseResponse');
 
-const DEFAULT_MODEL = 'claude-opus-5';
-const DEFAULT_MAX_TOKENS = 32_000;
-const DEFAULT_MAX_WEB_SEARCHES = 15;
+const DEFAULT_MODEL = 'claude-opus-5-5';
+const DEFAULT_MAX_TOKENS = 64_000;
+const DEFAULT_MAX_WEB_SEARCHES = 20;
 const DEFAULT_EFFORT = 'xhigh';
 
 /**
@@ -15,18 +15,24 @@ const DEFAULT_EFFORT = 'xhigh';
  * trade recommendations.
  *
  * Configuration choices baked in here (see README.md for rationale):
- *   - model: claude-opus-5 (the current Opus, strongest for agentic work;
- *     drop-in upgrade from 4.8 at the same pricing)
- *   - thinking: adaptive (also Opus 5's default when omitted; budget_tokens
- *     is removed and would 400)
- *   - effort: xhigh (recommended for coding/agentic work on Opus 5)
- *   - web_search: 15-call budget per run
+ *   - model: claude-opus-5-5 (the current Opus, strongest for agentic
+ *     work; cheaper than Opus 5 at $4/$20 per MTok vs $5/$25)
+ *   - thinking: adaptive (Opus 5.5's default when omitted; `disabled` and
+ *     budget_tokens both 400 at every effort level)
+ *   - effort: xhigh — and it MUST stay explicit. Opus 5.5 defaults to
+ *     `medium`, a level below Opus 5's `high`, so dropping this line
+ *     would quietly shallow out the reasoning rather than erroring.
+ *   - web_search: 20-call budget per run. Observed usage is 10-13, so 15
+ *     was closer to the ceiling than is comfortable: exhausting the
+ *     budget just stops the research mid-way, with no error.
  *   - prompt cache: system prompt is wrapped as an ephemeral text block,
  *     so weekly runs only pay full price for the user prompt and tools
  *
- * Streaming is required because max_tokens > 16k risks SDK HTTP timeouts.
- * We use stream() + finalMessage() rather than .create() so the SDK
- * handles long-running responses cleanly.
+ * max_tokens is 64k against ~20k of observed output — it is a ceiling,
+ * not a spend, so the headroom is free and protects against a long run
+ * truncating mid-JSON. Streaming is required at this size (>16k risks SDK
+ * HTTP timeouts); we use stream() + finalMessage() rather than .create()
+ * so the SDK handles long-running responses cleanly.
  */
 class Analyst {
   constructor({
