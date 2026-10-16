@@ -1,0 +1,27 @@
+#!/bin/sh
+# Installed as /usr/local/bin/claude-portfolio. Run with sudo:
+#   claude-portfolio status        the switch, the next runs, the last results
+#   claude-portfolio on | off      the switch for scheduled trading runs
+#   claude-portfolio force         queue a run now, bypassing the switch (REAL orders)
+#   claude-portfolio congressional run the congressional pipeline now
+#   claude-portfolio logs [unit]   recent logs (bot, api, congressional, backup)
+set -eu
+DATA=/srv/claude-portfolio
+as_app() { runuser -u claude-portfolio -- "$@"; }
+
+case "${1:-status}" in
+  status)
+    printf 'switch: %s\n' "$(cat "$DATA/active" 2>/dev/null || echo 'missing (off)')"
+    systemctl list-timers 'claude-portfolio-*' --no-pager | head -6
+    for u in api bot congressional backup; do
+      printf '%-14s %s (%s)\n' "$u" "$(systemctl is-active claude-portfolio-$u 2>/dev/null || true)" \
+        "$(systemctl show -P Result claude-portfolio-$u)"
+    done
+    ;;
+  on)  as_app sh -c "printf 'true\n' > $DATA/active.tmp && mv $DATA/active.tmp $DATA/active"; echo "switch: true" ;;
+  off) as_app sh -c "printf 'false\n' > $DATA/active.tmp && mv $DATA/active.tmp $DATA/active"; echo "switch: false" ;;
+  force) as_app sh -c "date -Is > $DATA/force-run"; echo "forced run queued" ;;
+  congressional) systemctl start --no-block claude-portfolio-congressional.service; echo "started" ;;
+  logs) journalctl -u "claude-portfolio-${2:-bot}" -n 200 --no-pager ;;
+  *) sed -n '2,8p' "$0"; exit 2 ;;
+esac

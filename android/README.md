@@ -68,7 +68,7 @@ provides their own. To enable push:
 
 The Firebase **service-account key** (a separate JSON you generate in
 Project Settings → Service Accounts) is the actual sensitive credential
-and lives only in AWS Secrets Manager — never in the repo. The root
+and lives only on the laptop (`/etc/claude-portfolio/fcm-sa.json`) — never in the repo. The root
 `.gitignore` blocks `*-firebase-adminsdk-*.json` defensively in case
 one ever lands in the working tree.
 
@@ -79,14 +79,10 @@ one ever lands in the working tree.
 Until a base URL and token are saved, every screen shows a "Not connected"
 state and the pill in the top bar is red.
 
-1. Get the API base URL — `infra/setup-api.sh` prints it (the root README's
-   "Setup → 3. HTTP API").
-2. Get the bearer token:
-   ```bash
-   aws secretsmanager get-secret-value \
-     --secret-id claude-portfolio/api-bearer-token \
-     --query SecretString --output text
-   ```
+1. The base URL is the API's public address (the Caddy site in
+   `laptop/units/claude-portfolio.caddy`).
+2. The bearer token is `API_BEARER_TOKEN` in `/etc/claude-portfolio/secrets.env`
+   on the laptop.
 3. In the app, open **Settings → Connection**, paste both, tap **Connect**.
 
 The pill flips to green "Live" and every screen loads real data.

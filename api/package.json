@@ -1,20 +1,15 @@
 {
   "name": "claude-portfolio-api",
   "version": "1.0.0",
-  "description": "HTTP API in front of the Claude Portfolio data layer. Read-only Alpaca + Dynamo + S3 + SSM, plus a few writes (flags, devices, run/force).",
-  "main": "handler.js",
+  "description": "HTTP API the Android app reads: Alpaca plus the bot's store, and a few writes (flags, devices, run/force).",
+  "main": "server.js",
   "type": "commonjs",
   "scripts": {
-    "local": "node local-server.js"
+    "start": "node server.js",
+    "test": "node --test \"**/*.test.js\""
   },
   "dependencies": {
-    "@alpacahq/alpaca-trade-api": "^3.1.3",
-    "@aws-sdk/client-dynamodb": "^3.1042.0",
-    "@aws-sdk/client-lambda": "^3.1042.0",
-    "@aws-sdk/client-s3": "^3.1042.0",
-    "@aws-sdk/client-secrets-manager": "^3.1042.0",
-    "@aws-sdk/client-ssm": "^3.1042.0",
-    "@aws-sdk/lib-dynamodb": "^3.1042.0"
+    "@alpacahq/alpaca-trade-api": "^3.1.3"
   },
   "license": "ISC"
 }

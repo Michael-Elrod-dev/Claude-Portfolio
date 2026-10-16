@@ -1,0 +1,10 @@
+[Unit]
+Description=Start a forced Claude Portfolio run when the app asks for one
+
+[Path]
+# POST /run/force writes this file; the bot removes it as it starts.
+PathExists=/srv/claude-portfolio/force-run
+Unit=claude-portfolio-bot.service
+
+[Install]
+WantedBy=multi-user.target

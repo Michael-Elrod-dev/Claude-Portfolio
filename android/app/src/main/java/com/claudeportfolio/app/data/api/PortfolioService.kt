@@ -16,7 +16,7 @@ import retrofit2.http.Path
 import retrofit2.http.Query
 
 /**
- * Retrofit interface mirroring the API Lambda's routes. Responses come
+ * Retrofit interface mirroring the API's routes. Responses come
  * wrapped in small envelopes (e.g. `{"memo": {...}}`) — [RetrofitApi]
  * unwraps them so the rest of the app sees plain domain types.
  *

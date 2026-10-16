@@ -1,0 +1,10 @@
+{
+  "Comment": "The Claude Portfolio API, on the same box as bot.michaelelrod.dev, whose updater keeps the address current",
+  "Changes": [{
+    "Action": "CREATE",
+    "ResourceRecordSet": {
+      "Name": "portfolio.michaelelrod.dev", "Type": "CNAME", "TTL": 300,
+      "ResourceRecords": [{"Value": "bot.michaelelrod.dev"}]
+    }
+  }]
+}

@@ -1,12 +1,12 @@
 'use strict';
 
-require('dotenv').config();
+require('dotenv').config({ quiet: true });
 
 const AlpacaSource = require('./sources/AlpacaSource');
 const EarningsSource = require('./sources/EarningsSource');
 const CongressionalSource = require('./sources/CongressionalSource');
 const MemoSource = require('./sources/MemoSource');
-const { memoBackendFromEnv } = require('./sources/memoBackendFactory');
+const store = require('./bot/store');
 const BriefingAssembler = require('./briefing/BriefingAssembler');
 
 async function main() {
@@ -15,8 +15,8 @@ async function main() {
       keyId: process.env.ALPACA_KEY_ID,
       secretKey: process.env.ALPACA_SECRET_KEY,
     }),
-    memo: new MemoSource({ backend: memoBackendFromEnv() }),
-    congressional: new CongressionalSource(),
+    memo: new MemoSource({ backend: store.memoBackend() }),
+    congressional: new CongressionalSource({ backend: store.congressionalBackend() }),
     earnings: new EarningsSource({
       apiKey: process.env.FINNHUB_API_KEY,
       windowDays: 14,

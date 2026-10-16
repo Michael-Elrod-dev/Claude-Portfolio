@@ -15,7 +15,7 @@ object PushConstants {
     /**
      * Intent extra keys used when a notification tap launches MainActivity.
      * `EXTRA_KIND` matches the FCM `kind` payload, mirrored from
-     * `data-gatherers/lambda/fcmPublisher.js::publish`.
+     * `data-gatherers/bot/fcmPublisher.js::publish`.
      */
     const val EXTRA_KIND = "fcm_kind"
     const val EXTRA_RUN_DATE = "fcm_runDate"

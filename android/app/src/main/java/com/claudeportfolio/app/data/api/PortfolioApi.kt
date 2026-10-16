@@ -10,7 +10,7 @@ import com.claudeportfolio.app.data.model.RunSummary
 
 /**
  * Sole abstraction the screens depend on. Two implementations:
- *   - [RetrofitApi]      — real HTTPS calls to the API Gateway, used
+ *   - [RetrofitApi]      — real HTTPS calls to the API, used
  *                          whenever the user has saved a base URL +
  *                          bearer token in Settings → Connection.
  *   - [NotConnectedApi]  — fallback that throws on every method so the

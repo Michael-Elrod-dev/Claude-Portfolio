@@ -1,10 +1,11 @@
 'use strict';
 
-require('dotenv').config();
+require('dotenv').config({ quiet: true });
 const CongressionalSource = require('./sources/CongressionalSource');
+const store = require('./bot/store');
 
 async function main() {
-  const source = new CongressionalSource();
+  const source = new CongressionalSource({ backend: store.congressionalBackend() });
   const snapshot = await source.fetch();
   console.log(JSON.stringify(snapshot, null, 2));
 }

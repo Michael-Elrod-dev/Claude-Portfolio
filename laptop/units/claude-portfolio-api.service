@@ -1,0 +1,30 @@
+[Unit]
+Description=Claude Portfolio API (the Android app's backend)
+After=network-online.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+User=claude-portfolio
+Group=claude-portfolio
+EnvironmentFile=/etc/claude-portfolio/claude-portfolio.env
+EnvironmentFile=-/etc/claude-portfolio/secrets.env
+WorkingDirectory=/srv/claude-portfolio
+ExecStart=/usr/bin/node /opt/claude-portfolio/current/api/server.js
+Restart=always
+RestartSec=3
+TimeoutStopSec=15s
+
+CPUQuota=50%
+CPUWeight=50
+Nice=5
+MemoryMax=256M
+OOMScoreAdjust=300
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+
+[Install]
+WantedBy=multi-user.target

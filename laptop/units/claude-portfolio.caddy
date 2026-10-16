@@ -1,0 +1,17 @@
+portfolio.michaelelrod.dev {
+	# Same DNS-01 challenge as the global acme_dns, plus a wait. Without it Let's Encrypt's
+	# production checks can run before Route 53 has spread the TXT record.
+	tls {
+		dns route53
+		propagation_delay 60s
+		propagation_timeout 5m
+	}
+
+	encode zstd gzip
+	reverse_proxy unix//run/caddy-upstreams/claude-portfolio/site.sock
+
+	log {
+		output stdout
+		format console
+	}
+}

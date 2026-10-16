@@ -18,8 +18,6 @@ credentials.json
 aws-credentials*.json
 
 # ── Build artifacts ─────────────────────────────────────────────────────
-# Lambda packaging output.
-.build/
 *.zip
 
 # Node.
@@ -59,9 +57,11 @@ Thumbs.db
 desktop.ini
 
 # ── Local-only data files ───────────────────────────────────────────────
-# The memo lives in S3 in production; locally it's a scratchpad.
-memo-local.json
-data-gatherers/memo.json
+# The live data lives on the laptop; data-gatherers/data/ is a local scratchpad.
+data-gatherers/data/
+
+# Where laptop/deploy.sh ships to (user@host), kept out of the public repo.
+laptop/.host
 
 # Ad-hoc test output / debug dumps.
 data-gatherers/response.json

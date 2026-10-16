@@ -1,7 +1,7 @@
 'use strict';
 
 /**
- * Alpaca client + portfolio enrichment for the API Lambda.
+ * Alpaca client + portfolio enrichment for the API.
  *
  * The pipeline already has a comprehensive AlpacaSource for the briefing,
  * but the API needs slightly different shapes (Android-friendly camelCase,
@@ -11,7 +11,6 @@
  */
 
 const Alpaca = require('@alpacahq/alpaca-trade-api');
-const { loadApiKeys } = require('./secrets');
 
 /**
  * The live brokerage host. This system has one real-money account and no
@@ -26,10 +25,13 @@ let cachedClient = null;
 
 async function getClient() {
   if (cachedClient) return cachedClient;
-  const keys = await loadApiKeys();
+  const { ALPACA_KEY_ID, ALPACA_SECRET_KEY } = process.env;
+  if (!ALPACA_KEY_ID || !ALPACA_SECRET_KEY) {
+    throw new Error('ALPACA_KEY_ID / ALPACA_SECRET_KEY are not set');
+  }
   cachedClient = new Alpaca({
-    keyId: keys.ALPACA_KEY_ID,
-    secretKey: keys.ALPACA_SECRET_KEY,
+    keyId: ALPACA_KEY_ID,
+    secretKey: ALPACA_SECRET_KEY,
     baseUrl: LIVE_BASE_URL,
   });
   return cachedClient;

@@ -1,33 +1,19 @@
 'use strict';
 
 /**
- * POST /run/force — fire the pipeline Lambda asynchronously with
- * { force: true } so the active flag is bypassed.
+ * POST /run/force — queue a run that bypasses the on/off switch.
  *
- * Returns 202 immediately. The pipeline takes 3–8 minutes; the app should
- * wait for the FCM run_complete push (or poll /runs/latest).
+ * Writes the store's `force-run` request; claude-portfolio-force.path sees
+ * it and starts the bot, which removes it. Returns 202 at once: the run
+ * takes several minutes, and the app waits for the run_complete push (or
+ * polls /runs/latest).
  */
 
-const {
-  LambdaClient,
-  InvokeCommand,
-} = require('@aws-sdk/client-lambda');
+const { requestForcedRun } = require('../services/store');
 const { accepted } = require('../respond');
 
-const REGION = process.env.AWS_REGION || 'us-east-1';
-const PIPELINE_FUNCTION =
-  process.env.PIPELINE_FUNCTION_NAME || 'claude-portfolio-trader';
-
-const lambda = new LambdaClient({ region: REGION });
-
 async function postRunForce() {
-  await lambda.send(
-    new InvokeCommand({
-      FunctionName: PIPELINE_FUNCTION,
-      InvocationType: 'Event', // fire-and-forget
-      Payload: Buffer.from(JSON.stringify({ force: true })),
-    })
-  );
+  await requestForcedRun();
   return accepted({ status: 'triggered', forced: true });
 }
 

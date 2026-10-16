@@ -18,9 +18,9 @@
  *   Because this file is wired to `npm run executor`, it refuses to do
  *   anything unless CONFIRM_LIVE_TRADES=yes is set. That guard exists only
  *   to stop an accidental invocation; it is not a safety mode and it does
- *   not gate the scheduled Lambda pipeline, which always trades.
+ *   not gate the scheduled pipeline, which always trades.
  */
-require('dotenv').config();
+require('dotenv').config({ quiet: true });
 const fs = require('node:fs/promises');
 const Executor = require('./executor/Executor');
 

@@ -1,0 +1,11 @@
+[Unit]
+Description=Nightly Claude Portfolio backup
+
+[Timer]
+# Clear of the 09:00 trading run and the 20:00 congressional run.
+OnCalendar=*-*-* 03:20:00
+RandomizedDelaySec=120
+Persistent=true
+
+[Install]
+WantedBy=timers.target

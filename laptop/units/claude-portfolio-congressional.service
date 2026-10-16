@@ -1,0 +1,23 @@
+[Unit]
+Description=Congressional disclosures: ingest new filings, write the bot's snapshot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=claude-portfolio
+Group=claude-portfolio
+EnvironmentFile=/etc/claude-portfolio/claude-portfolio.env
+# ANTHROPIC_API_KEY turns on Claude OCR for scanned paper filings.
+EnvironmentFile=/etc/claude-portfolio/secrets.env
+WorkingDirectory=/srv/claude-portfolio/congressional
+ExecStart=/usr/local/bin/claude-portfolio-congressional
+TimeoutStartSec=2h
+
+Nice=10
+IOSchedulingClass=idle
+MemoryMax=2G
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full

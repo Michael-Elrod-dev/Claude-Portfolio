@@ -14,7 +14,7 @@ import com.google.firebase.messaging.RemoteMessage
  * Receives data-only FCM payloads from the pipeline and surfaces them as
  * system notifications. All three payload kinds (`run_complete`,
  * `briefing_error`, `run_failed`) are emitted by
- * `data-gatherers/lambda/fcmPublisher.js`.
+ * `data-gatherers/bot/fcmPublisher.js`.
  *
  * The service intentionally posts the notification ourselves rather than
  * relying on FCM's `notification` payload, because data-only delivery is

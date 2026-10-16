@@ -23,16 +23,9 @@ const DEFAULT_EFFORT = 'xhigh';
  *   - effort: xhigh — and it MUST stay explicit. Opus 5.5 defaults to
  *     `medium`, a level below Opus 5's `high`, so dropping this line
  *     would quietly shallow out the reasoning rather than erroring.
- *   - web_search: 15-call budget per run, and deliberately NOT raised.
- *     Observed usage is 10-13, which does sit close to the cap, and
- *     exhausting it ends the research early with no error. But searches
- *     are the main driver of wall-clock time (~28s each: 12 searches ran
- *     332s of a 592s run on 2026-10-15), and the real binding constraint
- *     is the Lambda timeout — 900s is an AWS hard ceiling that cannot be
- *     raised. At 20 searches a run projects to ~810s, 90% of that wall,
- *     and a timeout mid-Executor can leave orders partially placed with
- *     no run archived. More research headroom therefore requires
- *     splitting the Analyst into its own invocation, not a bigger budget.
+ *   - web_search: 15-call budget per run. Observed usage is 10-13, close
+ *     to the cap, and exhausting it ends the research early with no error.
+ *     Searches are the main driver of wall-clock time (~28s each).
  *   - prompt cache: system prompt is wrapped as an ephemeral text block,
  *     so weekly runs only pay full price for the user prompt and tools
  *   - refusal fallback: if a safety classifier declines, the API re-runs

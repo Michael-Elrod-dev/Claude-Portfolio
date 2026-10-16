@@ -25,9 +25,8 @@ const EMPTY_MEMO = Object.freeze({
  * tickers it wants to monitor, and free-form observations about the
  * broader market.
  *
- * The backend is pluggable — LocalFileBackend for development, an S3
- * backend (future) for production. Both implement { read() } returning
- * the raw memo string or null when missing.
+ * The backend is anything with { read() } returning the raw memo string,
+ * or null when missing — LocalFileBackend in practice, a stub in tests.
  */
 class MemoSource extends DataSource {
   constructor({ backend } = {}) {

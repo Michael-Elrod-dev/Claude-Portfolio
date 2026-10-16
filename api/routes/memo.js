@@ -1,6 +1,6 @@
 'use strict';
 
-const { readMemo } = require('../services/s3memo');
+const { readMemo } = require('../services/memo');
 const { ok, notFound } = require('../respond');
 
 async function getMemo() {

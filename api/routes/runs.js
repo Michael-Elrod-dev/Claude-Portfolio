@@ -1,23 +1,14 @@
 'use strict';
 
 /**
- * Run-archive endpoints. Reads from claude-portfolio-runs (PK runDate).
+ * Run-archive endpoints, read from the store's runs/ directory.
  *
- *   GET /runs/latest    — most recent row (Scan + sort by runDate desc, take 1)
- *   GET /runs/{date}    — exact item by runDate
- *   GET /runs?limit=N   — list of compact rows for the History screen
- *
- * Why Scan instead of Query: PK is `runDate` (single key), so we don't have
- * a partition we can Query on. The runs table is small (one row per
- * scheduled run, plus the occasional forced run). Even after a year that's
- * ~100 rows — Scan is comfortably fine and one read unit per call.
+ *   GET /runs/latest    — most recent run record
+ *   GET /runs/{date}    — exact record by runDate
+ *   GET /runs?limit=N   — compact rows for the History screen
  */
 
-const {
-  ScanCommand,
-  GetCommand,
-} = require('@aws-sdk/lib-dynamodb');
-const { ddb, TABLES } = require('../services/ddb');
+const { listRuns, getRun } = require('../services/store');
 const { ok, notFound, badRequest } = require('../respond');
 
 function compactRow(item) {
@@ -33,17 +24,10 @@ function compactRow(item) {
   };
 }
 
-async function fetchAllRunsSorted() {
-  const out = await ddb.send(new ScanCommand({ TableName: TABLES.RUNS }));
-  const items = out.Items || [];
-  items.sort((a, b) => (a.runDate < b.runDate ? 1 : -1)); // newest first
-  return items;
-}
-
 async function getRunsLatest() {
-  const items = await fetchAllRunsSorted();
-  if (items.length === 0) return notFound('no runs archived yet');
-  return ok({ run: items[0] });
+  const [latest] = await listRuns();
+  if (!latest) return notFound('no runs archived yet');
+  return ok({ run: latest });
 }
 
 async function getRunByDate(_event, params) {
@@ -51,20 +35,14 @@ async function getRunByDate(_event, params) {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     return badRequest('runDate must be YYYY-MM-DD');
   }
-  const out = await ddb.send(
-    new GetCommand({ TableName: TABLES.RUNS, Key: { runDate: date } })
-  );
-  if (!out.Item) return notFound(`no run for ${date}`);
-  return ok({ run: out.Item });
+  const run = await getRun(date);
+  if (!run) return notFound(`no run for ${date}`);
+  return ok({ run });
 }
 
 async function getRunsList(event) {
-  const limitStr = event.queryStringParameters?.limit;
-  const limit = Math.min(
-    parseInt(limitStr, 10) || 20,
-    100
-  );
-  const items = await fetchAllRunsSorted();
+  const limit = Math.min(parseInt(event.queryStringParameters?.limit, 10) || 20, 100);
+  const items = await listRuns();
   return ok({
     runs: items.slice(0, limit).map(compactRow),
     total: items.length,

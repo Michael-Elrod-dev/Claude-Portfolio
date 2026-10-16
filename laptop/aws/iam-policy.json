@@ -1,0 +1,17 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "WriteAndCheckBackups",
+      "Effect": "Allow",
+      "Action": ["s3:PutObject", "s3:GetObject"],
+      "Resource": "arn:aws:s3:::claude-portfolio-backup-b1422366/backups/*"
+    },
+    {
+      "Sid": "ListForHeadObject",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::claude-portfolio-backup-b1422366"
+    }
+  ]
+}

@@ -2,7 +2,7 @@
 
 /**
  * Tiny response helpers so route handlers stay declarative.
- * Lambda Function URL response shape: { statusCode, headers, body }.
+ * Response shape: { statusCode, headers, body }; server.js writes it out.
  */
 
 const HEADERS = {

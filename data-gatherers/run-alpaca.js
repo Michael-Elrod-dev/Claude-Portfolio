@@ -1,6 +1,6 @@
 'use strict';
 
-require('dotenv').config();
+require('dotenv').config({ quiet: true });
 const AlpacaSource = require('./sources/AlpacaSource');
 
 async function main() {

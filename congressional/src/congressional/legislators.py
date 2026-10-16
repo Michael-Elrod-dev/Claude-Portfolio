@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 import threading
 import time
@@ -29,7 +30,8 @@ logger = logging.getLogger(__name__)
 
 _BASE_URL = "https://unitedstates.github.io/congress-legislators"
 _FILES = ("legislators-current.json", "legislators-historical.json")
-_DATA_DIR = Path("data/legislators")
+# A 30-day cache of the dataset, beside the rest of the pipeline's files.
+_DATA_DIR = Path(os.environ.get("CONGRESSIONAL_DATA_DIR", "data")) / "legislators"
 REFRESH_DAYS = 30
 
 # Only index members whose final term ended after this — our filings start in

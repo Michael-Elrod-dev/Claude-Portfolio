@@ -54,7 +54,7 @@ import com.claudeportfolio.app.ui.theme.smallBody
  * The right-hand column shows the executor tally. A run with failures gets
  * a danger-bordered card so a bad week is visible without opening it.
  *
- * Only ~9 runs are ever present (the DynamoDB table has a 30-day TTL), so
+ * Only ~9 runs are ever present (the store prunes runs after 30 days), so
  * this list is short by construction.
  */
 @Composable

@@ -1,13 +1,13 @@
 'use strict';
 
-require('dotenv').config();
+require('dotenv').config({ quiet: true });
 const AlpacaSource = require('./sources/AlpacaSource');
 const EarningsSource = require('./sources/EarningsSource');
 
 async function main() {
   // For testing: derive the symbol list from current Alpaca holdings.
   // In the real briefing assembler, this list will come from
-  // (held positions) ∪ (watchlist from the S3 memo).
+  // (held positions) ∪ (watchlist from the memo).
   const alpaca = new AlpacaSource({
     keyId: process.env.ALPACA_KEY_ID,
     secretKey: process.env.ALPACA_SECRET_KEY,

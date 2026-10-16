@@ -1,19 +1,18 @@
 'use strict';
 
 const fs = require('node:fs/promises');
+const path = require('node:path');
 
 /**
- * Reads a string from the local filesystem. Returns null when the file
- * doesn't exist (so callers can distinguish "missing" from "empty").
- *
- * Used as the development backend for MemoSource. The S3 equivalent will
- * implement the same { read() } contract so MemoSource itself doesn't
- * change when we deploy.
+ * Reads and writes one file. Returns null from read() when the file doesn't
+ * exist, so callers can distinguish "missing" from "empty". Writes go to a
+ * temp file first and are renamed into place, so a reader (the API serving
+ * the memo while the bot rewrites it) never sees half a file.
  */
 class LocalFileBackend {
-  constructor({ path }) {
-    if (!path) throw new Error('LocalFileBackend requires a path');
-    this.path = path;
+  constructor({ path: filePath }) {
+    if (!filePath) throw new Error('LocalFileBackend requires a path');
+    this.path = filePath;
   }
 
   async read() {
@@ -29,11 +28,14 @@ class LocalFileBackend {
     if (typeof body !== 'string') {
       throw new Error('LocalFileBackend.write expects a string body');
     }
-    await fs.writeFile(this.path, body, 'utf8');
+    await fs.mkdir(path.dirname(this.path), { recursive: true });
+    const tmp = `${this.path}.${process.pid}.tmp`;
+    await fs.writeFile(tmp, body, 'utf8');
+    await fs.rename(tmp, this.path);
   }
 
   describe() {
-    return `local:${this.path}`;
+    return `file:${this.path}`;
   }
 }
 

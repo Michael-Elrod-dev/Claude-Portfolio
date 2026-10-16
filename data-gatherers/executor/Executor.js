@@ -23,9 +23,9 @@ const ORDER_TERMINAL_STATES = new Set([
  *
  * This executor always submits real orders to the live brokerage account.
  * There is no dry-run mode and no paper account: every recommendation it
- * is handed is placed. The kill switch lives upstream — SSM
- * `claude-portfolio-active` plus the two EventBridge rules decide whether
- * a run happens at all (see lambda/handler.js).
+ * is handed is placed. The kill switch lives upstream — the store's
+ * `active` switch decides whether a scheduled run happens at all (see
+ * bot/run.js).
  *
  * Safety design:
  *   - All recommendations are executed regardless of confidence level.

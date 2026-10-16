@@ -4,7 +4,7 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonObject
 
 // Wire shapes that the Android app reads. These mirror the JSON returned
-// by the API Lambda (see api/routes/). All annotated with @Serializable so
+// by the API (see api/routes/). All annotated with @Serializable so
 // Retrofit + the kotlinx-serialization converter can deserialize directly.
 //
 // Field names match the API exactly. Don't rename without updating the API.

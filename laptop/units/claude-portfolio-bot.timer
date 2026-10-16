@@ -1,0 +1,13 @@
+[Unit]
+Description=Claude Portfolio trading run, Mon + Thu before the open
+
+[Timer]
+# 09:00 Eastern, so orders queue before the 09:30 open and fill at it. The zone keeps
+# it at 09:00 across daylight saving. Not Persistent: a run missed while the laptop was
+# off is skipped rather than trading mid-day.
+OnCalendar=Mon,Thu *-*-* 09:00:00 America/New_York
+AccuracySec=1s
+Persistent=false
+
+[Install]
+WantedBy=timers.target

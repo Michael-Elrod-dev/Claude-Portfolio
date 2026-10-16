@@ -1,0 +1,24 @@
+[Unit]
+Description=Claude Portfolio trading run (briefing, Claude, live orders)
+After=network-online.target
+Wants=network-online.target
+# A forced run that keeps failing to start must not loop through the path unit.
+StartLimitIntervalSec=10min
+StartLimitBurst=3
+
+[Service]
+# No Restart=: a trading run is never retried automatically.
+Type=oneshot
+User=claude-portfolio
+Group=claude-portfolio
+EnvironmentFile=/etc/claude-portfolio/claude-portfolio.env
+EnvironmentFile=/etc/claude-portfolio/secrets.env
+WorkingDirectory=/srv/claude-portfolio
+ExecStart=/usr/bin/node /opt/claude-portfolio/current/data-gatherers/bot/run.js
+TimeoutStartSec=45min
+
+MemoryMax=1G
+
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full

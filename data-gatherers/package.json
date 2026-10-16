@@ -1,10 +1,11 @@
 {
   "name": "data-gatherers",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Claude Portfolio trading bot",
+  "main": "bot/run.js",
   "scripts": {
     "test": "node --test \"**/*.test.js\"",
+    "bot": "node bot/run.js",
     "alpaca": "node run-alpaca.js",
     "earnings": "node run-earnings.js",
     "congressional": "node run-congressional.js",
@@ -20,11 +21,6 @@
   "dependencies": {
     "@alpacahq/alpaca-trade-api": "^3.1.3",
     "@anthropic-ai/sdk": "^0.93.0",
-    "@aws-sdk/client-dynamodb": "^3.1042.0",
-    "@aws-sdk/client-s3": "^3.1042.0",
-    "@aws-sdk/client-secrets-manager": "^3.1042.0",
-    "@aws-sdk/client-ssm": "^3.1042.0",
-    "@aws-sdk/lib-dynamodb": "^3.1042.0",
     "dotenv": "^17.4.2",
     "firebase-admin": "^13.0.1"
   }

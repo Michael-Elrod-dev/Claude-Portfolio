@@ -1,19 +1,13 @@
 'use strict';
 
 const DataSource = require('./DataSource');
-const S3Backend = require('./backends/S3Backend');
 
-// Object key of the snapshot inside the project's S3 bucket (the same bucket
-// that holds memo.json — the Lambda role already reads the whole bucket).
-const DEFAULT_S3_KEY = 'congressional.json';
 const DEFAULT_LOOKBACK_DAYS = 7;
 
-// The exporter runs the evening before each pipeline run (Sun + Wed). A
-// snapshot older than this means the export workflow is failing — or GitHub
-// disabled its cron after 60 days without repo activity (it does that). Fail
-// loudly: BriefingAssembler records the error in briefing.errors, which
-// reaches the phone as a briefing_error FCM push. Re-enable the
-// "Congressional export" workflow from this repo's Actions tab.
+// The congressional runner writes the snapshot the evening before each run
+// (Sun + Wed). One older than this means the runner is failing. Fail loudly:
+// BriefingAssembler records the error in briefing.errors, which reaches the
+// phone as a briefing_error FCM push.
 const MAX_SNAPSHOT_AGE_DAYS = 8;
 
 // Trade size is a bucket, not an exact dollar amount. Ranks:
@@ -30,12 +24,10 @@ const TX_TYPE_MAP = { buy: 'buy', sell: 'sell', exchange: 'exchange' };
 const PARTY_MAP = { D: 'Democrat', R: 'Republican', I: 'Independent' };
 
 /**
- * Pulls recently DISCLOSED congressional stock trades from the S3 snapshot
- * that this repo's congressional/ pipeline writes.
- *
- * The snapshot is written by .github/workflows/congressional-export.yml
- * and holds trades filed in the last ~14 days plus the politician
- * directory, as camelCase rows (congressional/src/congressional/schema.py).
+ * Pulls recently DISCLOSED congressional stock trades from the snapshot
+ * that this repo's congressional/ pipeline writes. It holds trades filed in
+ * the last ~14 days plus the politician directory, as camelCase rows
+ * (congressional/src/congressional/schema.py).
  *
  * The lookback window is applied to the FILING date, not the transaction
  * date. Under the STOCK Act, members have up to 45 days to disclose a
@@ -45,35 +37,25 @@ const PARTY_MAP = { D: 'Democrat', R: 'Republican', I: 'Independent' };
  */
 class CongressionalSource extends DataSource {
   constructor({
-    bucket = process.env.MEMO_S3_BUCKET,
-    s3Key = DEFAULT_S3_KEY,
+    backend,
     lookbackDays = DEFAULT_LOOKBACK_DAYS,
     minSizeRank = DEFAULT_MIN_SIZE_RANK,
-    backend = null, // injectable for tests; defaults to S3
   } = {}) {
     super({ name: 'congressional' });
-    this.bucket = bucket;
-    this.s3Key = s3Key;
+    if (!backend || typeof backend.read !== 'function') {
+      throw new Error('CongressionalSource requires a backend with a read() method');
+    }
     this.lookbackDays = lookbackDays;
     this.minSizeRank = minSizeRank;
     this.backend = backend;
   }
 
   async fetch() {
-    if (!this.backend) {
-      if (!this.bucket) {
-        throw new Error(
-          'MEMO_S3_BUCKET is not set — cannot read the congressional snapshot.'
-        );
-      }
-      this.backend = new S3Backend({ bucket: this.bucket, key: this.s3Key });
-    }
-
     const raw = await this.backend.read();
     if (raw === null) {
       throw new Error(
         `Congressional snapshot missing at ${this.backend.describe()} — ` +
-          'has the "Congressional export" workflow ever run?'
+          'has claude-portfolio-congressional.service ever run?'
       );
     }
 
@@ -88,8 +70,7 @@ class CongressionalSource extends DataSource {
     if (ageDays === null || ageDays > MAX_SNAPSHOT_AGE_DAYS) {
       throw new Error(
         `Congressional snapshot is stale (exportedAt=${snapshot.exportedAt}) — ` +
-          'check the "Congressional export" workflow in this repo ' +
-          '(GitHub disables scheduled workflows after ~60 idle days).'
+          'check claude-portfolio-congressional.timer.'
       );
     }
 

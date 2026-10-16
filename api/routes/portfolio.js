@@ -7,7 +7,7 @@
  */
 
 const { buildPortfolio } = require('../services/alpaca');
-const { readMemo } = require('../services/s3memo');
+const { readMemo } = require('../services/memo');
 const { ok } = require('../respond');
 
 async function getPortfolio() {

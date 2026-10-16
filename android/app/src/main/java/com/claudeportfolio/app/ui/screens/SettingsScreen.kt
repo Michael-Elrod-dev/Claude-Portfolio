@@ -419,7 +419,7 @@ private fun ConnectionCard() {
                 label = "Base URL",
                 value = baseUrlInput,
                 onValueChange = { baseUrlInput = it },
-                placeholder = "https://xxxxx.execute-api.us-east-1.amazonaws.com",
+                placeholder = "https://portfolio.example.com",
                 mono = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
             )
@@ -428,7 +428,7 @@ private fun ConnectionCard() {
                 label = "Bearer token",
                 value = tokenInput,
                 onValueChange = { tokenInput = it },
-                placeholder = "paste from Secrets Manager",
+                placeholder = "API_BEARER_TOKEN from secrets.env",
                 mono = true,
                 keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
                 visualTransformation = if (revealToken) {

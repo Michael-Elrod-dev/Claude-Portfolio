@@ -1,0 +1,16 @@
+{
+  "Rules": [
+    {
+      "ID": "rotate-rolling-backups",
+      "Status": "Enabled",
+      "Filter": {"Prefix": "backups/rolling/"},
+      "NoncurrentVersionExpiration": {"NoncurrentDays": 14}
+    },
+    {
+      "ID": "abort-stalled-uploads",
+      "Status": "Enabled",
+      "Filter": {"Prefix": ""},
+      "AbortIncompleteMultipartUpload": {"DaysAfterInitiation": 2}
+    }
+  ]
+}

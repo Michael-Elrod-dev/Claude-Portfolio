@@ -1,11 +1,11 @@
 'use strict';
 
-require('dotenv').config();
+require('dotenv').config({ quiet: true });
 const MemoSource = require('./sources/MemoSource');
-const { memoBackendFromEnv } = require('./sources/memoBackendFactory');
+const store = require('./bot/store');
 
 async function main() {
-  const source = new MemoSource({ backend: memoBackendFromEnv() });
+  const source = new MemoSource({ backend: store.memoBackend() });
   const snapshot = await source.fetch();
   console.log(JSON.stringify(snapshot, null, 2));
 }

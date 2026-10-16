@@ -1,9 +1,10 @@
 # Claude-Portfolio
 
-A bi-weekly automated trading system that runs on AWS Lambda, gathers
-market data from several sources, asks Claude (via the Anthropic API) for
-trade recommendations, executes them on an Alpaca brokerage account,
-and reports results to an Android companion app via FCM push notification.
+A twice-weekly automated trading system that runs on a home server (a
+spare laptop running Ubuntu), gathers market data from several sources,
+asks Claude (via the Anthropic API) for trade recommendations, executes them
+on an Alpaca brokerage account, and reports results to an Android companion
+app via FCM push notification.
 
 The core design principle is **"humans control the inputs, Claude controls
 the decisions"** — we do not shape what Claude buys, only what data it sees.
@@ -11,50 +12,49 @@ the decisions"** — we do not shape what Claude buys, only what data it sees.
 It trades a single real-money Alpaca account. There is no paper account,
 no account switching and no dry-run mode.
 
-The system has four deployable units:
+Everything runs on the laptop as systemd units under one service user:
 
-| Unit | What it is | Where it runs |
+| Unit | What it is | When it runs |
 |---|---|---|
-| **Pipeline** (`data-gatherers/`) | The trading bot itself: briefing → analysis → memo → executor | AWS Lambda `claude-portfolio-trader`, fired by EventBridge Mon + Thu @ 13:00 UTC |
-| **HTTP API** (`api/`) | Read-only views over Alpaca + DynamoDB + S3 + SSM, plus a few writes | AWS Lambda `claude-portfolio-api` behind API Gateway HTTP API |
+| **Bot** (`data-gatherers/`) | The trading run: briefing → analysis → memo → executor | `claude-portfolio-bot.timer`, Mon + Thu 09:00 America/New_York |
+| **HTTP API** (`api/`) | What the Android app reads: Alpaca plus the bot's data, and a few writes | `claude-portfolio-api.service`, always on, behind Caddy |
+| **Congressional runner** (`congressional/`) | House + Senate disclosure ingest → the `congressional.json` snapshot the bot reads | `claude-portfolio-congressional.timer`, Sun + Wed 20:00 America/New_York |
+| **Backup** (`laptop/units/`) | Nightly archive of all the data to S3 | `claude-portfolio-backup.timer`, 03:20 |
 | **Android app** (`android/`) | Personal-use companion: portfolio, last run, memo, history, settings, push | Side-loaded Kotlin/Compose app on the user's phone |
-| **Congressional export** (`congressional/`) | House + Senate disclosure ingest → the `congressional.json` snapshot the pipeline reads | GitHub Actions, `.github/workflows/congressional-export.yml` |
 
 ---
 
 ## Architecture
 
 ```
-EventBridge (Mon + Thu @ 13:00 UTC)
-        │
-        ▼
-   Pipeline Lambda  ──►  Briefing assembler
-        │                  Alpaca · earnings · congressional · memo (S3)
-        │
-        ▼
-   Analyst (Claude API + web search)  ──►  trade recommendations JSON
-        │                                  + memo update
-        ▼
-   MemoUpdater (Claude, no tools)  ──►  new memo, written to S3
-        │
-        ▼
-   Executor  ──►  Alpaca live account
-                  (always real orders — no dry-run)
-        │
-        ▼
-   ──┬──  DynamoDB  claude-portfolio-runs       (run record, 30d TTL)
-     ├──  DynamoDB  claude-portfolio-activity   (event log, 30d TTL)
-     ├──  S3        memo.json                   (overwritten each run)
-     └──  FCM       run_complete · briefing_error · run_failed
-                          │
-                          ▼
-                    Android app  ◄──  HTTP API Lambda
-                                       /portfolio · /memo · /runs · /flags · ...
+Sun + Wed 20:00 ET                       Mon + Thu 09:00 ET (before the 09:30 open)
+        │                                        │
+        ▼                                        ▼
+ Congressional runner  ──►  congressional.json   Bot  ──►  Briefing assembler
+ (House ZIP, Senate eFD,                          │         Alpaca · earnings · congressional · memo
+  Claude OCR for scans)                           ▼
+                                           Analyst (Claude API + web search)  ──►  recommendations
+                                                  │
+                                                  ▼
+                                           MemoUpdater (Claude, no tools)  ──►  new memo.json
+                                                  │
+                                                  ▼
+                                           Executor  ──►  Alpaca live account
+                                                  │       (always real orders — no dry-run;
+                                                  │        market orders fill at the open)
+                                                  ▼
+                              /srv/claude-portfolio: runs/ · activity.jsonl · memo.json · devices.json
+                                                  │
+                                                  ├──  FCM  run_complete · briefing_error · run_failed
+                                                  │              │
+                                                  ▼              ▼
+                                           HTTP API  ──────►  Android app
+                                     /portfolio · /memo · /runs · /flags · ...
 ```
 
-Two Lambdas: the pipeline (which also sends the FCM pushes) and the HTTP
-API. The congressional snapshot is produced separately by a GitHub Actions
-workflow the evening before each run.
+The bot and the API share one directory of plain files (`bot/store.js`), so
+there is no database server. The congressional runner keeps its own SQLite
+database beside them.
 
 ### What is programmatic vs. what Claude does at runtime
 
@@ -68,29 +68,32 @@ tool, where its synthesis ability adds the most value.
 |---|---|---|
 | Portfolio (positions, cash, orders) | Alpaca SDK | Source of truth |
 | Earnings calendar | Finnhub free API | Canonical dates — guardrail |
-| Congressional trades | S3 snapshot from `congressional/` (House + Senate disclosures) | Free signal source |
+| Congressional trades | Snapshot from `congressional/` (House + Senate disclosures) | Free signal source |
 | News on held + watched tickers | Claude web search at runtime | Synthesis is the value-add |
 | Macro / market commentary | Claude web search at runtime | Same |
 | Deeper research on candidates | Claude web search at runtime | Same |
-| Past reasoning + watchlist | S3 memo | Persistent state |
+| Past reasoning + watchlist | The memo | Persistent state |
 
 ---
 
 ## Project layout
 
 ```
-data-gatherers/                     ← Pipeline lambda code
+data-gatherers/                     ← the bot
 ├── alpacaClient.js                ← the one Alpaca client factory (live endpoint pinned)
+├── bot/
+│   ├── run.js                     ← entry point: the whole trading run, `--force` to bypass the switch
+│   ├── store.js                   ← the files the bot and the API share (runs, activity, memo, switch)
+│   ├── config.js                  ← API keys from the environment
+│   └── fcmPublisher.js            ← lazy-loads firebase-admin, sends pushes
 ├── sources/
 │   ├── DataSource.js              ← abstract base class, fetch() contract
 │   ├── AlpacaSource.js            ← portfolio + recent orders
 │   ├── EarningsSource.js          ← upcoming earnings dates
-│   ├── CongressionalSource.js     ← reads the congressional/ S3 snapshot
+│   ├── CongressionalSource.js     ← reads the congressional snapshot
 │   ├── MemoSource.js              ← persistent memo reader
-│   ├── memoBackendFactory.js      ← picks S3 or local based on env
-│   ├── backends/
-│   │   ├── LocalFileBackend.js    ← memo backend for development
-│   │   └── S3Backend.js           ← memo backend for production
+│   └── backends/
+│       └── LocalFileBackend.js    ← atomic read/write of one file
 ├── briefing/
 │   └── BriefingAssembler.js       ← orchestrates all sources → one JSON
 ├── analyst/
@@ -106,21 +109,16 @@ data-gatherers/                     ← Pipeline lambda code
 ├── executor/
 │   ├── Executor.js                ← submits recommendations to Alpaca
 │   └── sizingResolver.js          ← amount → qty/notional (pure logic)
-├── lambda/
-│   ├── handler.js                 ← entry point — wraps the full pipeline in try/catch
-│   ├── secretsLoader.js           ← Secrets Manager + SSM active-flag reader
-│   ├── runArchiver.js             ← writes one row per run to claude-portfolio-runs
-│   ├── activityLogger.js          ← appends events to claude-portfolio-activity
-│   └── fcmPublisher.js            ← lazy-loads firebase-admin, sends pushes
 ├── **/*.test.js                   ← node:test suites (`npm test`)
 ├── run-*.js                       ← npm-script harnesses for running one stage by hand
 ├── .env / .env.example            ← gitignored — local secrets only
 └── package.json
 
-api/                                ← HTTP API lambda code
-├── handler.js                     ← regex router, bearer-token auth
-├── auth.js                        ← constant-time comparison vs Secrets Manager
-├── respond.js                     ← JSON response helpers
+api/                                ← HTTP API
+├── server.js                      ← HTTP server on a Unix socket (PORT= for local dev)
+├── app.js                         ← regex router, bearer-token auth
+├── auth.js                        ← constant-time comparison vs API_BEARER_TOKEN
+├── respond.js / body.js           ← JSON response + body helpers
 ├── routes/
 │   ├── portfolio.js               ← GET /portfolio (Alpaca + memo enrichment)
 │   ├── memo.js                    ← GET /memo
@@ -132,11 +130,18 @@ api/                                ← HTTP API lambda code
 │   └── runForce.js                ← POST /run/force
 ├── services/
 │   ├── alpaca.js                  ← Alpaca client + portfolio enrichment
-│   ├── ddb.js                     ← shared Dynamo doc client
-│   ├── ssm.js                     ← SSM read/write helpers
-│   ├── secrets.js                 ← API-keys secret reader
-│   └── s3memo.js                  ← S3 memo reader
+│   ├── memo.js                    ← parsed memo
+│   └── store.js                   ← the bot's store, shared
+├── server.test.js                 ← routes + auth against a temp data dir
 └── package.json
+
+congressional/                      ← Python (uv) disclosure pipeline — see congressional/README.md
+
+laptop/                             ← deploy to the home server
+├── deploy.sh                      ← run from the desktop: test, pack, ship, install
+├── install.sh                     ← the box half: install, test, switch releases, units, Caddy
+├── units/                         ← systemd units, env file, Caddy site, runner/backup/admin scripts
+└── aws/                           ← the backup bucket, its IAM policy, the DNS record
 
 android/                            ← Kotlin/Compose companion app
 ├── build.gradle.kts                  root Gradle (Compose, Kotlin, Firebase plugins)
@@ -172,24 +177,6 @@ android/                            ← Kotlin/Compose companion app
 │       │       └── screens/                  ← 5 tabs + RunDetail
 │       └── res/                              ← icons, strings, themes, font_certs
 └── README.md                       ← Android-specific build instructions
-
-infra/                              ← AWS provisioning + deploy scripts
-├── setup.sh                       ← one-time: IAM, Lambda, EventBridge, Dynamo, SSM, S3
-├── setup-api.sh                   ← one-time: API IAM + Lambda + API Gateway + bearer secret
-├── deploy.sh                      ← packages and uploads pipeline lambda code
-├── deploy-api.sh                  ← packages and uploads API lambda code
-├── invoke-manual.sh               ← fire a forced pipeline run (--force)
-├── toggle.sh                      ← on/off/status — SSM active flag + EventBridge rules
-├── secrets-update.sh              ← interactive secret editor for claude-portfolio/api-keys
-├── fetch-memo.py                  ← grab the memo from S3 to look at locally
-├── zip-lambda.py                  ← cross-platform zip helper used by deploy scripts
-├── policy.json                    ← IAM policy for the pipeline lambda
-└── api-policy.json                ← IAM policy for the API lambda
-
-congressional/                      ← Python (uv) disclosure pipeline — see congressional/README.md
-.github/workflows/
-└── congressional-export.yml       ← runs the congressional pipeline, uploads the snapshot
-
 README.md                           ← (this file)
 ```
 
@@ -201,101 +188,71 @@ thin harnesses; `BriefingAssembler` orchestrates the sources in production.
 
 ## Setup
 
-The system has three deployable units — pipeline, API, Android. These
-instructions cover provisioning a fresh AWS account end-to-end. If you're
-just running the pipeline locally for development, only step 1 matters.
-
 ### Prerequisites
 
-- AWS CLI (v2) configured with a profile that has IAM + Lambda +
-  EventBridge + Secrets Manager + SSM + DynamoDB + S3 + APIGatewayV2 perms
-- Python 3 (for the cross-platform zip helper used by `infra/deploy*.sh`)
-- Node 22 (matches the Lambda runtime)
+- Node 22 and Python 3.12+ with [uv](https://docs.astral.sh/uv/) on the
+  desktop (tests run there before every deploy)
+- An Ubuntu box reachable over SSH with passwordless sudo, running the
+  Caddy that fronts the API (TLS by DNS-01). `install.sh` installs Node.
 - Android Studio (any 2024.x stable — Iguana through Ladybug)
-- Alpaca **live brokerage** account and its `AK…` keys: 
+- Alpaca **live brokerage** account and its `AK…` keys:
   [app.alpaca.markets](https://app.alpaca.markets). There is no paper
   fallback — every key this system accepts trades real money.
 - Finnhub free key: [finnhub.io](https://finnhub.io)
 - Anthropic API key: [console.anthropic.com](https://console.anthropic.com)
 
-### 1. Pipeline (data-gatherers)
+### 1. Local development
 
 ```bash
 cd data-gatherers
 npm install
 cp .env.example .env  # fill in ALPACA_*, FINNHUB_API_KEY, ANTHROPIC_API_KEY
+npm test
 
-# sanity-check each source
+# sanity-check each source (reads data-gatherers/data/ for the memo and snapshot)
 npm run alpaca
 npm run earnings
-npm run congressional
+npm run briefing
 ```
 
-### 2. AWS pipeline infra
+### 2. Deploy to the laptop
 
-From the repo root:
+Write the SSH target to `laptop/.host` (gitignored), then:
 
 ```bash
-bash infra/setup.sh           # creates IAM role/policy, S3, Secrets Manager
-                              # placeholder, SSM flags, Dynamo tables (runs +
-                              # activity + devices), Lambda function (placeholder
-                              # code), EventBridge rules (DISABLED)
-
-bash infra/secrets-update.sh  # interactive — paste your Anthropic, Alpaca,
-                              # and Finnhub keys into Secrets Manager
-
-bash infra/deploy.sh          # uploads the real lambda code
-
-bash infra/toggle.sh on       # enables SSM active flag + EventBridge rules
-                              # (Mon + Thu @ 13:00 UTC)
+bash laptop/deploy.sh
 ```
 
-### 3. HTTP API
+It runs all three test suites, ships a release to `/opt/claude-portfolio`,
+runs the tests again on the box, and only then switches `current`, installs
+the units and reloads Caddy. The first deploy also creates the
+`claude-portfolio` user and its folders.
+
+Secrets live in `/etc/claude-portfolio/` on the box, never in the repo:
+
+| File | Holds |
+|---|---|
+| `secrets.env` | `ANTHROPIC_API_KEY`, `ALPACA_KEY_ID`, `ALPACA_SECRET_KEY`, `FINNHUB_API_KEY`, `API_BEARER_TOKEN` |
+| `fcm-sa.json` | the Firebase service-account key (Firebase console → Project Settings → Service accounts) |
+| `aws.env` | the backup user's access key (root only) |
+
+### 3. Operating it
 
 ```bash
-bash infra/setup-api.sh       # creates API Lambda role/policy, Lambda
-                              # function, API Gateway HTTP API, generates
-                              # bearer token in Secrets Manager
-
-bash infra/deploy-api.sh      # uploads the API code
-
-# setup-api.sh prints the API Gateway URL; reveal the bearer token with:
-aws secretsmanager get-secret-value \
-  --secret-id claude-portfolio/api-bearer-token \
-  --query SecretString --output text
+sudo claude-portfolio status   # the switch, the next runs, the last results
+sudo claude-portfolio off      # scheduled trading runs stop; `on` resumes
+sudo claude-portfolio force    # a run now, bypassing the switch (REAL orders)
+sudo claude-portfolio logs bot # or api, congressional, backup
 ```
 
-### 4. Firebase + FCM (manual web steps)
-
-1. https://console.firebase.google.com → create project (or reuse one)
-2. **Add app → Android**, package name `com.claudeportfolio.app`
-3. Download `google-services.json` → drop into `android/app/`
-4. **Project Settings → Service accounts → Generate new private key** →
-   save the JSON somewhere safe (don't commit it)
-5. Upload that key to Secrets Manager:
-   ```bash
-   aws secretsmanager create-secret \
-     --name claude-portfolio/fcm-sa \
-     --secret-string file:///path/to/your-key.json \
-     --region us-east-1
-   ```
-6. Redeploy: `bash infra/deploy.sh` (so `firebase-admin` is in the lambda zip)
-
-### 5. Android app
+### 4. Android app
 
 1. Open `android/` in Android Studio → **Sync Now**
 2. **Run ▶** with your phone connected (USB debugging on)
 3. On first launch grant the **POST_NOTIFICATIONS** permission
-4. Open **Settings → Connection**, paste:
-   - Base URL: from step 3 output
-   - Bearer token: from step 3 output
-5. Tap **Connect** — status pill at the top flips to green "Live"
-
-To verify the full loop end-to-end:
-
-```bash
-bash infra/invoke-manual.sh --force  # ~4 min later your phone gets a push
-```
+4. Open **Settings → Connection**, paste the API's base URL and the
+   `API_BEARER_TOKEN` from `secrets.env`
+5. Tap **Connect** — the status pill at the top flips to green "Live"
 
 ---
 
@@ -347,22 +304,21 @@ initiating new positions into a binary event.
 
 **Notes / considerations:**
 - Symbol-agnostic by design — accepts any list. In the assembler this will
-  be `(held positions) ∪ (watchlist from S3 memo)`.
+  be `(held positions) ∪ (watchlist from the memo)`.
 - `time` field translates Finnhub's `bmo`/`amc`/`dmh` codes into
   `before_open`/`after_close`/`during_hours`.
 - Missing estimates pass through as `null`, never zero or "TBD". Claude
   reads `null` as "unknown" cleanly; placeholders would mislead it.
-- Finnhub free tier: 60 calls/min, more than enough for a weekly cron with
+- Finnhub free tier: 60 calls/min, more than enough for a twice-weekly run with
   ~10 symbols.
 
 ### CongressionalSource (`sources/CongressionalSource.js`)
 
-Reads recently disclosed congressional stock trades from
-`congressional.json` in the project's S3 bucket. That snapshot is written by
-the pipeline in [`congressional/`](congressional/README.md) — a scheduled
-GitHub Actions workflow that ingests House and Senate trade disclosures into
-a cached SQLite database and exports the last 14 days of filings plus the
-member directory. No API key is involved.
+Reads recently disclosed congressional stock trades from the
+`congressional.json` snapshot the congressional runner writes the evening
+before each run. The runner ingests House and Senate trade disclosures into
+a SQLite database and exports the last 14 days of filings plus the member
+directory. No API key is involved.
 
 **Role:** the actual **signal source** for this project. The pattern of
 who is trading what, when, and at what size is the closest thing to a real
@@ -391,8 +347,7 @@ edge in this whole pipeline.
   the snapshot's member directory resolves name, party, chamber and state.
 - **Staleness is an error.** A snapshot older than 8 days throws, which lands
   in `briefing.errors` and reaches the phone as a `briefing_error` push —
-  usually the export workflow failing, or GitHub disabling its cron after 60
-  idle days.
+  the congressional runner is failing.
 - **Duplicate trades are real, not bugs.** When a member sells the same
   stock several times in one day, each transaction is disclosed separately.
   We pass them through faithfully — Claude can decide how to weight them.
@@ -415,12 +370,10 @@ free-form observations.
 ```
 
 **Notes / considerations:**
-- **Pluggable backend.** The reader doesn't know about S3 or local files —
+- **Pluggable backend.** The reader doesn't know where the memo lives —
   it takes a `backend` object exposing `read()`, `write()`, and
-  `describe()`. Both `LocalFileBackend` and `S3Backend` implement that
-  contract, so swapping environments doesn't change `MemoSource` itself.
-  The runners pick a backend via `memoBackendFromEnv()` (S3 when
-  `MEMO_S3_BUCKET` is set, local otherwise).
+  `describe()`. In practice that is `store.memoBackend()`, a
+  `LocalFileBackend` on `memo.json` in the data directory.
 - **First-run handling.** When the memo file doesn't exist, `read()`
   returns `null` and the source returns an empty-default memo with
   `firstRun: true`. The Analyst can use that flag to skip "what happened
@@ -432,9 +385,9 @@ free-form observations.
 - **Graceful degradation on bad JSON.** Throws a clear error rather than
   silently returning the empty default — a corrupted memo should fail
   loudly so we notice.
-- **`memo.json` is gitignored.** It contains Claude's evolving research
-  notes and isn't meant to be source-controlled. In production this lives
-  in S3.
+- **The memo is data, not source.** It lives in the data directory on
+  the laptop (`/srv/claude-portfolio/memo.json`) and in the nightly backup;
+  locally, `data-gatherers/data/` is gitignored.
 - **The watchlist lives in the memo, not in any config file.** This is
   deliberate: per the project's core principle, the human controls the
   inputs but never the decisions. If Claude wants to track AMD, that's its
@@ -510,10 +463,10 @@ trade recommendations. This is the brain of the pipeline.
 | Thinking | `{type: "adaptive"}` | Opus 5.5's default when omitted — `disabled` and `budget_tokens` both 400 at every effort level |
 | Effort | `xhigh` | Must stay explicit: Opus 5.5 defaults to `medium`, a level below Opus 5's `high`, so omitting it silently shallows the reasoning |
 | Max tokens | 64,000 | A ceiling, not a spend. ~20k observed output, so the headroom is free and stops a long run truncating mid-JSON |
-| Web search | `web_search_20260209`, `max_uses: 15` | Deliberately not raised. Observed usage is 10–13 and exhausting the budget silently ends the research, but searches cost ~28s each and the binding constraint is the 900s Lambda timeout (an AWS hard ceiling). 20 searches projects to ~810s of a 900s window; more headroom needs the Analyst split into its own invocation |
+| Web search | `web_search_20260209`, `max_uses: 15` | Observed usage is 10–13, close to the cap; exhausting it silently ends the research. Each search adds ~28s to the run |
 | Streaming | Yes (`stream()` + `finalMessage()`) | Required since `max_tokens > 16k` would risk SDK HTTP timeouts |
 | Refusal fallback | `fallbacks: [{model: "claude-opus-5"}]`, beta `server-side-fallback-2026-06-01` | If a safety classifier declines, the API re-runs the request on Opus 5 in the same call. Applies to the MemoUpdater too. If the whole chain declines, the run stops before the executor with a `RefusalError` — no orders. The serving model and a `fellBack` flag are archived in `analystMeta` (see `analyst/claudeRequest.js`) |
-| Prompt cache | System prompt as ephemeral text block | System prompt is stable across runs, so weekly runs only pay full price for the user prompt + tool definitions |
+| Prompt cache | System prompt as ephemeral text block | System prompt is stable across runs, so each run only pays full price for the user prompt + tool definitions |
 
 **Notes / considerations:**
 
@@ -548,47 +501,41 @@ trade recommendations. This is the brain of the pipeline.
   rules about *what* to recommend would violate the project's autonomy
   principle.
 
-### S3Backend (`sources/backends/S3Backend.js`)
+### Store (`bot/store.js`)
 
-Production backend for `MemoSource`, also used by `CongressionalSource` to
-read the snapshot. Implements the same `{ read(), write(), describe() }`
-contract as `LocalFileBackend`.
+The files the bot and the API share, in one directory
+(`PORTFOLIO_DATA_DIR`, `/srv/claude-portfolio` on the laptop):
 
-**Bucket:**
-- `claude-portfolio-${AWS_ACCOUNT_ID}` in `us-east-1`
-- Public access fully blocked (all four ACL/policy flags set)
-- No versioning — the memo is overwritten each run
+```
+memo.json            Claude's working memory, rewritten every run
+congressional.json   the snapshot the congressional runner writes
+runs/YYYY-MM-DD.json one record per run date (a same-day forced run overwrites)
+activity.jsonl       append-only event log
+devices.json         FCM tokens
+active               "true" / "false" — the on/off switch for scheduled runs
+force-run            present while the app has queued a forced run
+```
 
 **Notes / considerations:**
-- **Credentials come from the standard AWS SDK chain** (env vars, shared
-  credentials file, IAM role). No keys live in code or `.env`. Locally,
-  this resolves to your `aws configure` profile; on Lambda, the execution
-  role.
-- **`read()` returns null when the key doesn't exist.** Other errors
-  (permission denied, network) propagate as-is — those should fail loudly
-  so we notice misconfigurations.
-- **`write()` always sets `ContentType: application/json`.** Everything it
-  stores is JSON.
-
-### Backend factory (`sources/memoBackendFactory.js`)
-
-Tiny helper that every memo-touching runner uses to pick a backend:
-
-```
-MEMO_S3_BUCKET set    → S3Backend (production)
-otherwise             → LocalFileBackend (development)
-```
-
-Centralizing this means every runner — `run-memo`, `run-briefing`,
-`run-analyst`, and the Lambda handler — makes the same decision the same
-way. Switching environments is a single env
-var flip, not a code change.
+- **Plain files, written atomically.** Every write goes to a temp file and
+  is renamed into place, so the API never serves half a memo while the bot
+  rewrites it. Both processes run as the same user.
+- **A missing switch reads as off**, so a fresh box never trades by
+  accident.
+- **Runs and activity older than 30 days are pruned** on write, which keeps
+  the History screen short.
+- **Forced runs.** `POST /run/force` writes `force-run`;
+  `claude-portfolio-force.path` sees it and starts the bot, which removes it
+  as it starts and treats the run as forced.
+- **Backups.** `claude-portfolio-backup` archives the whole directory plus a
+  consistent copy of the congressional database to S3 every night
+  (`rolling/daily-DD` and a never-overwritten `monthly/YYYY-MM`).
 
 ### MemoUpdater (`analyst/MemoUpdater.js`)
 
-The second Claude call in each weekly run. Takes the prior memo, this
-week's briefing, and the analyst's recommendations, and produces the new
-memo that gets written back to S3 (or the local file in development).
+The second Claude call in each run. Takes the prior memo, this run's
+briefing, and the analyst's recommendations, and produces the new memo that
+gets written back to the store.
 
 **Output shape:**
 ```
@@ -654,10 +601,10 @@ trades — and therefore the one with the most defensive defaults.
 
 - **There is exactly one switch, and it is not a dry-run.** The executor
   always submits real orders to the live brokerage account named by the
-  `ALPACA_KEY_ID`/`ALPACA_SECRET_KEY` secret. The only gate is SSM
-  `claude-portfolio-active`, checked at the top of every invocation, plus
-  the two EventBridge rules — `bash infra/toggle.sh off` sets all three.
-  A deploy cannot arm or disarm trading.
+  `ALPACA_KEY_ID`/`ALPACA_SECRET_KEY` keys. The only gate is the store's
+  `active` switch, checked at the top of every scheduled run
+  (`sudo claude-portfolio off`, or the app's Settings). A deploy cannot arm
+  or disarm trading.
 - **Every recommendation is submitted, whatever its confidence.**
   Confidence is recorded with the result as Claude's stated conviction;
   the executor does not gate on it.

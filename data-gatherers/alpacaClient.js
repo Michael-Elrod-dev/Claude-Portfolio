@@ -13,7 +13,7 @@
  *     config.baseUrl || process.env.APCA_API_BASE_URL || (config.paper ? paper : live)
  *   Omitting `paper` does land on the live host, but only because the flag
  *   is falsy — and the env var sits ahead of that default, so a stray
- *   APCA_API_BASE_URL in the Lambda environment could silently redirect
+ *   APCA_API_BASE_URL in the environment could silently redirect
  *   real orders to paper (or anywhere). Passing baseUrl ourselves wins
  *   over both and makes the target account an explicit, greppable fact.
  */

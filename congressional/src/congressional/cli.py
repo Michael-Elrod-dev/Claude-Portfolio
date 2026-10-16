@@ -6,7 +6,7 @@ import typer
 from dotenv import load_dotenv
 
 # Load congressional/.env for local CLI runs (ANTHROPIC_API_KEY for OCR). A
-# no-op in the GitHub Actions workflow, which provides the env directly.
+# no-op on the laptop, whose systemd unit provides the env directly.
 load_dotenv()
 
 from congressional.house.ingest import ingest_year
@@ -32,9 +32,8 @@ DEFAULT_DATA_DIR = Path("data")
 def _require_database_url(process: str) -> None:
     """Fail loudly when DATABASE_URL is missing rather than guessing a database.
 
-    The export workflow sets it to the cached SQLite file
-    (sqlite:///data/congressional.db); tests call make_engine with an explicit
-    path instead.
+    The laptop's units set it to the SQLite file under the data dir; tests
+    call make_engine with an explicit path instead.
     """
     import os
 

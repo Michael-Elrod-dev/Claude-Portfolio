@@ -1,9 +1,8 @@
 """Export recently disclosed trades + politicians as one JSON snapshot.
 
-This is what the trading bot's CongressionalSource reads from S3
-(`congressional.json`). It is produced twice a week by
-.github/workflows/congressional-export.yml, after `poll` has ingested the
-latest House and Senate filings into the cached SQLite database.
+This is the `congressional.json` the trading bot's CongressionalSource reads.
+The laptop's claude-portfolio-congressional.service writes it twice a week,
+after `poll` has ingested the latest House and Senate filings into SQLite.
 
 It calls the query + row-shaping code directly (`trades.list_trades`,
 `politicians.list_politicians`) and walks it page by page, newest-filed first;
@@ -26,6 +25,7 @@ serialize by alias), which the bot's normalization relies on.
 from __future__ import annotations
 
 import json
+import os
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
@@ -121,6 +121,11 @@ def write_snapshot(
     """Write the snapshot JSON (compact separators, as the bot has always read
     it) and return (trade count, politician count)."""
     payload = collect(engine, window_days, now=now)
-    with open(out, "w", encoding="utf-8") as fh:
+    out = Path(out)
+    # Written beside the target and renamed into place, so the bot never
+    # reads half a file.
+    tmp = out.with_name(out.name + ".tmp")
+    with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(payload, fh, separators=(",", ":"))
+    os.replace(tmp, out)
     return len(payload["trades"]), len(payload["politicians"])

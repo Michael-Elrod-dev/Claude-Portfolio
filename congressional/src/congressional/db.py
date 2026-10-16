@@ -155,9 +155,9 @@ def make_engine(db_path: Path | None = None) -> Engine:
     """Create a SQLAlchemy engine.
 
     Priority order:
-      1. DATABASE_URL env var — the export workflow sets it to the cached
-         SQLite file (sqlite:///data/congressional.db). A postgres:// URL is
-         normalised to postgresql:// for SQLAlchemy.
+      1. DATABASE_URL env var — the laptop's units set it to the SQLite file
+         under the data dir. A postgres:// URL is normalised to postgresql://
+         for SQLAlchemy.
       2. db_path argument — SQLite, for local dev and CLI usage.
       3. Default SQLite path data/congressional.db.
     """
