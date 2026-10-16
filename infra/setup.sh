@@ -98,22 +98,17 @@ aws iam attach-role-policy \
 
 # If the policy already existed, the create above no-ops and our updated
 # policy.json wouldn't take effect. Always publish a new default version.
-# AWS caps at 5 versions per policy; delete the oldest non-default first
-# whenever we're at the limit.
-EXISTING_VERSIONS=$(aws iam list-policy-versions \
+# Keep only the default version: old versions are dead copies of the policy,
+# and pruning first keeps us under AWS's 5-version cap.
+for OLD_VERSION in $(aws iam list-policy-versions \
   --policy-arn "${POLICY_ARN}" \
-  --query 'length(Versions)' \
-  --output text 2>/dev/null || echo 0)
-if [ "${EXISTING_VERSIONS}" -ge 5 ]; then
-  OLDEST_NON_DEFAULT=$(aws iam list-policy-versions \
-    --policy-arn "${POLICY_ARN}" \
-    --query 'Versions[?IsDefaultVersion==`false`] | sort_by(@, &CreateDate) | [0].VersionId' \
-    --output text)
+  --query 'Versions[?IsDefaultVersion==`false`].VersionId' \
+  --output text 2>/dev/null); do
   aws iam delete-policy-version \
     --policy-arn "${POLICY_ARN}" \
-    --version-id "${OLDEST_NON_DEFAULT}" \
+    --version-id "${OLD_VERSION}" \
     > /dev/null
-fi
+done
 aws iam create-policy-version \
   --policy-arn "${POLICY_ARN}" \
   --policy-document "${POLICY_DOC}" \
