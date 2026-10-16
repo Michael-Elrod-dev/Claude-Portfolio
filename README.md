@@ -71,7 +71,7 @@ tool, where its synthesis ability adds the most value.
 |---|---|---|
 | Portfolio (positions, cash, orders) | Alpaca SDK | Source of truth |
 | Earnings calendar | Finnhub free API | Canonical dates — guardrail |
-| Congressional trades | trade-parser API | Free signal source |
+| Congressional trades | S3 snapshot from `congressional/` (House + Senate disclosures) | Free signal source |
 | News on held + watched tickers | Claude web search at runtime | Synthesis is the value-add |
 | Macro / market commentary | Claude web search at runtime | Same |
 | Deeper research on candidates | Claude web search at runtime | Same |
@@ -87,7 +87,7 @@ data-gatherers/                     ← Pipeline lambda code
 │   ├── DataSource.js              ← abstract base class, fetch() contract
 │   ├── AlpacaSource.js            ← portfolio + recent orders
 │   ├── EarningsSource.js          ← upcoming earnings dates
-│   ├── CongressionalSource.js     ← trade-parser API client
+│   ├── CongressionalSource.js     ← reads the congressional/ S3 snapshot
 │   ├── MemoSource.js              ← persistent memo reader
 │   ├── memoBackendFactory.js      ← picks S3 or local based on env
 │   ├── backends/
@@ -222,7 +222,7 @@ just running the pipeline locally for development, only step 1 matters.
 ```bash
 cd data-gatherers
 npm install
-cp .env.example .env  # fill in ALPACA_*, FINNHUB_API_KEY, ANTHROPIC_API_KEY, TRADE_PARSER_API_KEY
+cp .env.example .env  # fill in ALPACA_*, FINNHUB_API_KEY, ANTHROPIC_API_KEY
 
 # sanity-check each source
 npm run alpaca
@@ -358,13 +358,17 @@ initiating new positions into a binary event.
 
 ### CongressionalSource (`sources/CongressionalSource.js`)
 
-Pulls recently disclosed congressional stock trades from the trade-parser
-API (`https://trade-parser-production.up.railway.app`). Requires an API key
-sent as the `X-API-Key` header (env: `TRADE_PARSER_API_KEY`).
+Reads recently disclosed congressional stock trades from
+`congressional.json` in the project's S3 bucket. That snapshot is written by
+the pipeline in [`congressional/`](congressional/README.md) — a scheduled
+GitHub Actions workflow that ingests House and Senate trade disclosures into
+a cached SQLite database and exports the last 14 days of filings plus the
+member directory. No API key is involved.
 
-> Previously this scraped Capitol Trades' embedded Next.js RSC payload. That
-> broke when the page structure changed, so it now consumes a dedicated API
-> (a separate project) that parses the same disclosures and serves clean JSON.
+> History: this first scraped Capitol Trades' embedded Next.js payload, then
+> read a hosted disclosures API run by a separate project. When that
+> project's website was retired, its ingest pipeline moved into this repo as
+> `congressional/`, producing a byte-for-byte identical snapshot.
 
 **Role:** the actual **signal source** for this project. The pattern of
 who is trading what, when, and at what size is the closest thing to a real
@@ -469,7 +473,7 @@ every week.
 - **Two-phase execution.** Phase 1 fetches Alpaca, memo, and congressional
   in parallel. Phase 2 fetches earnings, which depends on the symbol list
   derived from phase 1. Total runtime is dominated by the slowest phase 1
-  source (typically the trade-parser API at ~400ms).
+  source.
 - **Tiered failure handling.** Alpaca is critical — if we don't know the
   portfolio we can't decide anything, so failures abort the whole run.
   All other sources are soft: failures are caught, logged in `errors[]`,
@@ -727,7 +731,7 @@ the Executor turns those into `skipped` results.
 These don't belong to any one component but will need to be addressed
 before deployment.
 
-- **API key rotation** — the Alpaca, Finnhub, and trade-parser keys are
+- **API key rotation** — the Alpaca and Finnhub keys are
   currently in `.env`. For Lambda, move to AWS Secrets Manager. Never put
   them in environment variables on the Lambda itself.
 - **Guardrails vs. guidance.** The "humans control inputs, Claude controls
@@ -749,7 +753,7 @@ before deployment.
 ### Pipeline
 - [x] AlpacaSource — portfolio, cash, recent orders
 - [x] EarningsSource — earnings calendar guardrail
-- [x] CongressionalSource — trade-parser API
+- [x] CongressionalSource — S3 snapshot from `congressional/`
 - [x] MemoSource — pluggable backend (local file + S3)
 - [x] BriefingAssembler — orchestrates all sources into one JSON
 - [x] Analyst — Anthropic API call, web search, JSON parsing

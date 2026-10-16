@@ -8,12 +8,12 @@ const S3Backend = require('./backends/S3Backend');
 const DEFAULT_S3_KEY = 'congressional.json';
 const DEFAULT_LOOKBACK_DAYS = 7;
 
-// The exporter runs Mon + Thu, hours before each pipeline run. A snapshot
-// older than this means the export workflow is failing — or GitHub disabled
-// its cron after 60 days without repo activity (it does that). Fail loudly:
-// BriefingAssembler records the error in briefing.errors, which reaches the
-// phone as a briefing_error FCM push. Re-enable the workflow from the
-// Trade-Parser repo's Actions tab.
+// The exporter runs the evening before each pipeline run (Sun + Wed). A
+// snapshot older than this means the export workflow is failing — or GitHub
+// disabled its cron after 60 days without repo activity (it does that). Fail
+// loudly: BriefingAssembler records the error in briefing.errors, which
+// reaches the phone as a briefing_error FCM push. Re-enable the
+// "Congressional export" workflow from this repo's Actions tab.
 const MAX_SNAPSHOT_AGE_DAYS = 8;
 
 // The API reports trade size as a bucket, not an exact dollar amount. Ranks:
@@ -31,17 +31,16 @@ const TX_TYPE_MAP = { buy: 'buy', sell: 'sell', exchange: 'exchange' };
 const PARTY_MAP = { D: 'Democrat', R: 'Republican', I: 'Independent' };
 
 /**
- * Pulls recently DISCLOSED congressional stock trades from the Trade-Parser
- * S3 snapshot.
+ * Pulls recently DISCLOSED congressional stock trades from the S3 snapshot
+ * that this repo's congressional/ pipeline writes.
  *
- * History: this began as a Capitol Trades HTML scraper, became a client of
- * the hosted trade-parser API (https://api.congress-trades.com), and — when
- * that hosting was retired in July 2026 — moved to this shape: the same
- * parser now runs as a scheduled GitHub Action in the Trade-Parser repo
- * (Mon + Thu 08:00 UTC) and drops a JSON snapshot in this project's S3
- * bucket. The snapshot carries the raw /v1 row shapes the API served
- * (trades filed in the last ~14 days + the politician directory), so the
- * normalization below is unchanged from the API era.
+ * History: this began as a Capitol Trades HTML scraper, then read a hosted
+ * disclosures API, then (July 2026) a snapshot exported by a separate
+ * project's scheduled workflow. In October 2026 that pipeline moved into
+ * this repo as congressional/ (.github/workflows/congressional-export.yml),
+ * byte-for-byte compatible, so the normalization below is unchanged. The
+ * snapshot holds trades filed in the last ~14 days plus the politician
+ * directory, in the camelCase row shape the old API served.
  *
  * The lookback window is applied to the FILING date, not the transaction
  * date. Under the STOCK Act, members have up to 45 days to disclose a
@@ -79,7 +78,7 @@ class CongressionalSource extends DataSource {
     if (raw === null) {
       throw new Error(
         `Congressional snapshot missing at ${this.backend.describe()} — ` +
-          'has the Trade-Parser export workflow ever run?'
+          'has the "Congressional export" workflow ever run?'
       );
     }
 
@@ -94,7 +93,7 @@ class CongressionalSource extends DataSource {
     if (ageDays === null || ageDays > MAX_SNAPSHOT_AGE_DAYS) {
       throw new Error(
         `Congressional snapshot is stale (exportedAt=${snapshot.exportedAt}) — ` +
-          'check the Trade-Parser "Congressional export" workflow ' +
+          'check the "Congressional export" workflow in this repo ' +
           '(GitHub disables scheduled workflows after ~60 idle days).'
       );
     }

@@ -21,7 +21,6 @@ read -rsp "ANTHROPIC_API_KEY:    " ANTHROPIC_API_KEY;    echo
 read -rsp "ALPACA_KEY_ID:        " ALPACA_KEY_ID;        echo
 read -rsp "ALPACA_SECRET_KEY:    " ALPACA_SECRET_KEY;    echo
 read -rsp "FINNHUB_API_KEY:      " FINNHUB_API_KEY;      echo
-read -rsp "TRADE_PARSER_API_KEY: " TRADE_PARSER_API_KEY; echo
 
 # Fetch the current secret so we can preserve any blank fields.
 CURRENT=$(aws secretsmanager get-secret-value \
@@ -44,13 +43,16 @@ get_or_keep() {
 NEW_SECRET=$(python3 -c "
 import json, sys
 current = json.loads('''${CURRENT}''')
-updates = {
+# Start from the current secret so keys this script doesn't manage are kept,
+# never silently dropped. (TRADE_PARSER_API_KEY, for the retired disclosures
+# API, is no longer prompted for; congressional/README.md covers removing it.)
+updates = dict(current)
+updates.update({
   'ANTHROPIC_API_KEY': '''${ANTHROPIC_API_KEY}''' or current.get('ANTHROPIC_API_KEY',''),
   'ALPACA_KEY_ID':     '''${ALPACA_KEY_ID}'''     or current.get('ALPACA_KEY_ID',''),
   'ALPACA_SECRET_KEY': '''${ALPACA_SECRET_KEY}''' or current.get('ALPACA_SECRET_KEY',''),
   'FINNHUB_API_KEY':   '''${FINNHUB_API_KEY}'''   or current.get('FINNHUB_API_KEY',''),
-  'TRADE_PARSER_API_KEY': '''${TRADE_PARSER_API_KEY}''' or current.get('TRADE_PARSER_API_KEY',''),
-}
+})
 print(json.dumps(updates))
 ")
 
