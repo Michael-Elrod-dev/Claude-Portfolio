@@ -51,11 +51,8 @@ import com.claudeportfolio.app.ui.theme.smallBody
 /**
  * History, in Kiln. One card per archived run; tapping pushes RunDetail.
  *
- * The right-hand column used to show a day-P/L percentage. That field was
- * never populated by the API, so it rendered an em dash on every row for the
- * life of the screen; it now shows the executor tally, which the endpoint
- * really does return. A run with failures gets a danger-bordered card so a
- * bad week is visible without opening it.
+ * The right-hand column shows the executor tally. A run with failures gets
+ * a danger-bordered card so a bad week is visible without opening it.
  *
  * Only ~9 runs are ever present (the DynamoDB table has a 30-day TTL), so
  * this list is short by construction.

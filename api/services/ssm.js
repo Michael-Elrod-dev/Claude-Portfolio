@@ -4,9 +4,7 @@
  * Thin wrapper around SSM Parameter Store for the one flag param:
  *   /claude-portfolio-active  — bot enabled?
  *
- * There was a second param, /claude-portfolio-live, that chose between
- * dry-run and real order placement. It was deleted along with the paper
- * account: every run now trades, so `active` is the only gate.
+ * Every run trades, so `active` is the only gate.
  *
  * Flags are stored as plain "true" / "false" strings to match the
  * convention the pipeline already uses.

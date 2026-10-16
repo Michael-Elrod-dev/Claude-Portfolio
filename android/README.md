@@ -3,13 +3,14 @@
 Companion to the Claude Portfolio pipeline. See the
 [root README](../README.md) for the system-wide setup.
 
-A side-loaded, dark-only Kotlin/Compose app that displays:
+A side-loaded, dark-only Kotlin/Compose app on the Kiln design system that
+displays:
 
-- **Portfolio** — equity hero number, day/week stats, all positions with thesis + P/L%
+- **Portfolio** — equity hero number, today/week/month/year P/L tiles, all positions with thesis + P/L%
 - **Last run** — Claude's summary, recommendations (tap to expand), executor stats
 - **Memo** — Claude's working memory: open theses, closed theses, watchlist, notes
-- **History** — list of weekly runs; tap one to see its detail
-- **Settings** — connection (base URL + bearer token), bot controls (active / live / force-run), briefing JSON inspector, recent activity
+- **History** — list of runs; tap one to see its detail
+- **Settings** — connection (base URL + bearer token), bot controls (active / force-run), briefing JSON inspector, recent activity
 
 Push notifications fire after every pipeline run via FCM. Tap one to land
 on the relevant tab with fresh data.
@@ -75,17 +76,11 @@ one ever lands in the working tree.
 
 ## Connecting to your API
 
-On first launch the app uses **mock data** seeded from the design
-handoff. You'll see a red "Mock data" pill in the top-right.
+Until a base URL and token are saved, every screen shows a "Not connected"
+state and the pill in the top bar is red.
 
-To connect to your live API:
-
-1. Get the API base URL — see the root README's "Setup → 3. HTTP API"
-   section, or run from the repo root:
-   ```bash
-   aws lambda get-function-url-config --function-name claude-portfolio-api \
-     --query FunctionUrl --output text
-   ```
+1. Get the API base URL — `infra/setup-api.sh` prints it (the root README's
+   "Setup → 3. HTTP API").
 2. Get the bearer token:
    ```bash
    aws secretsmanager get-secret-value \
@@ -94,8 +89,7 @@ To connect to your live API:
    ```
 3. In the app, open **Settings → Connection**, paste both, tap **Connect**.
 
-The pill flips to green "Live · paper acct". Every screen now shows real
-data.
+The pill flips to green "Live" and every screen loads real data.
 
 ---
 
@@ -110,14 +104,14 @@ android/
 └── app/
     ├── build.gradle.kts             # app module — full dep stack
     ├── proguard-rules.pro
-    ├── google-services.json         # Firebase Android config (committed; not secret)
+    ├── google-services.json         # Firebase Android config (gitignored; see above)
     └── src/main/
         ├── AndroidManifest.xml
         ├── java/com/claudeportfolio/app/
         │   ├── MainActivity.kt              # FCM token registration + deep-link routing
         │   ├── PortfolioApp.kt              # Application — registers notification channel
         │   ├── data/
-        │   │   ├── api/                     # PortfolioApi (interface) + MockApi + RetrofitApi
+        │   │   ├── api/                     # PortfolioApi (interface) + RetrofitApi + NotConnectedApi
         │   │   ├── config/ConfigStore.kt    # DataStore: base URL + bearer token
         │   │   └── model/Models.kt          # @Serializable wire types
         │   ├── push/
@@ -128,8 +122,8 @@ android/
         │       ├── RootScreen.kt            # NavController + tab routing
         │       ├── LocalApi.kt              # API + IsLive + RefreshTick CompositionLocals
         │       ├── UiState.kt               # Loading/Ready/Error + rememberLoadable
-        │       ├── theme/                   # Color, Type, Theme
-        │       ├── components/              # AppBar, BottomNav, NavIcons, Skeleton
+        │       ├── theme/                   # Kiln tokens: Color, Type, Dimens, Theme
+        │       ├── components/              # AppBar, BottomNav, Kiln primitives, NavIcons, Skeleton
         │       ├── format/Format.kt         # USD / pct / date formatters
         │       └── screens/                 # Portfolio, LastRun, RunDetail, Memo,
         │                                    # History, Settings
@@ -143,7 +137,7 @@ android/
 - **Compose BOM 2024.10.00**, Material 3 1.3, Kotlin 2.0.21, AGP 8.7.3
 - **Retrofit 2.11** + the official `converter-kotlinx-serialization`
 - **DataStore Preferences** for persisted config (no Room — refetch on
-  tab change is fine for a weekly app)
+  tab change is fine for a twice-weekly bot)
 - **Firebase BOM 33.6.0** + `firebase-messaging-ktx`
 - **No Hilt** — `staticCompositionLocalOf` does the job at this size
 - **No WorkManager** — FCM is the actual nudge for fresh data
@@ -151,7 +145,7 @@ android/
 
 If you want to extend this app, the most likely friction points are:
 
-- Adding a new endpoint → update `PortfolioApi`, `MockApi`,
+- Adding a new endpoint → update `PortfolioApi`, `NotConnectedApi`,
   `PortfolioService`, `RetrofitApi` in lockstep.
 - Adding a new screen → drop a file in `ui/screens/`, register the route
   in `RootScreen.kt`, add a tab to `Tab` enum if it's a top-level

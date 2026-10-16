@@ -37,15 +37,6 @@
       "Resource": "arn:aws:ssm:us-east-1:000000000000:parameter/claude-portfolio-*"
     },
     {
-      "Sid": "SESNotifications",
-      "Effect": "Allow",
-      "Action": [
-        "ses:SendEmail",
-        "ses:SendRawEmail"
-      ],
-      "Resource": "*"
-    },
-    {
       "Sid": "DynamoRunsActivityDevices",
       "Effect": "Allow",
       "Action": [

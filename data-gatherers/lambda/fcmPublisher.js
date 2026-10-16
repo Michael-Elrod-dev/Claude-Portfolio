@@ -8,9 +8,8 @@
  * account secret doesn't exist yet, publish() is a no-op that logs and
  * returns — it never fails the pipeline run.
  *
- * Notification kinds (mirror the handoff README):
+ * Notification kinds:
  *   - run_complete       — fired after every successful run
- *   - queued_for_review  — fired when at least one rec is queued for review
  *   - briefing_error     — fired when briefing.errors[] is non-empty
  *   - run_failed         — fired when the pipeline threw before completing
  *
@@ -93,7 +92,7 @@ async function loadTokens() {
 }
 
 /**
- * @param {string} kind  - run_complete | queued_for_review | briefing_error | run_failed
+ * @param {string} kind  - run_complete | briefing_error | run_failed
  * @param {object} data  - small key/value payload, all string-stringified by the Android client
  *                         (FCM data-only payloads must be flat strings)
  */

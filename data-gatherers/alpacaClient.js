@@ -4,8 +4,8 @@
  * The one place an Alpaca client gets built for the pipeline.
  *
  * This system trades a single real-money brokerage account. There is no
- * paper account and no account switching — that was removed deliberately,
- * so there is nothing here to configure and no way to point the pipeline
+ * paper account and no account switching, so there is nothing here to
+ * configure and no way to point the pipeline
  * somewhere else by accident.
  *
  * Why `baseUrl` is set explicitly rather than left to the SDK:

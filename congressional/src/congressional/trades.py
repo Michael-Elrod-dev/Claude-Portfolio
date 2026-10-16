@@ -93,7 +93,7 @@ def _prices_for_page(conn, rows) -> dict[int, float | None]:
 
     Same rule as `_close_on_or_before` — each ticker trade shows the close on its
     transaction date, or the nearest prior session within 7 days. Done naively
-    that's ~50 round-trips per page (the old N+1); instead we fetch every relevant
+    that's ~50 round-trips per page (an N+1); instead we fetch every relevant
     close for the page's tickers across the page's date window in ONE query, then
     pick each row's value in Python with a bisect. Returns {trade_id: close|None}.
     """
@@ -208,11 +208,8 @@ def _row_to_trade(row, price: float | None = None) -> Trade | None:
 def build_trades_where_join() -> tuple[str, str, dict]:
     """Build ``(where_sql, join_sql, params)`` for the unfiltered trade list.
 
-    The hosted API's version took ~20 optional filters (party, sector, market
-    cap, committee, ...) for the website's trade explorer. The snapshot never
-    filters, so only the base clause and the always-on filer_enrichment join
-    remain — which is exactly what the old function produced with no filters
-    set, so the SQL text is unchanged.
+    The snapshot never filters, so this is only the base clause and the
+    always-on filer_enrichment join.
     """
     # Date-less rows can't be displayed (no traded date) — exclude so the total
     # count matches the rows actually returned. Non-ticker assets are kept.

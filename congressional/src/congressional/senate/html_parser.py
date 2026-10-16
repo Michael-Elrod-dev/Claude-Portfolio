@@ -14,7 +14,7 @@ from congressional.models import TradeRecord, is_ticker
 # "Self" is an explicit disclosure on Senate filings — store it as its own
 # code rather than collapsing it into NULL, which the API reports as
 # "Undisclosed". Rows parsed before 2026-06-10 stored NULL; re-running
-# `trade-parser senate parse-ptrs <year> --redo` recovers them.
+# `congressional senate parse-ptrs <year> --redo` recovers them.
 OWNER_LABEL_TO_CODE: dict[str, str | None] = {
     "self": "SELF",
     "joint": "JT",

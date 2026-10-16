@@ -82,11 +82,10 @@ dependencies {
     // Navigation Compose — used by the bottom-nav router
     implementation("androidx.navigation:navigation-compose:2.8.4")
 
-    // Google Fonts loader for downloadable Inter / JetBrains Mono.
-    // The handoff calls for Inter as the single body family.
+    // Google Fonts loader for Kiln's downloadable Instrument Sans / JetBrains Mono.
     implementation("androidx.compose.ui:ui-text-google-fonts")
 
-    // Phase 5: HTTP + JSON + persisted prefs
+    // HTTP + JSON + persisted prefs
     implementation("com.squareup.retrofit2:retrofit:2.11.0")
     implementation("com.squareup.retrofit2:converter-kotlinx-serialization:2.11.0")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
@@ -94,7 +93,7 @@ dependencies {
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
 
-    // Phase 6: Firebase Cloud Messaging
+    // Firebase Cloud Messaging
     implementation(platform("com.google.firebase:firebase-bom:33.6.0"))
     implementation("com.google.firebase:firebase-messaging-ktx")
     // Provides Task<T>.await() so we can read the FCM token from a coroutine.

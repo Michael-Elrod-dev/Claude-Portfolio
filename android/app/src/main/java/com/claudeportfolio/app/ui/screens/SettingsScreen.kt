@@ -74,8 +74,8 @@ import kotlinx.serialization.json.contentOrNull
 /**
  * Settings, in Kiln. Four cards: Connection, Bot controls, Briefing, Activity.
  *
- * The active flag is the system's only kill switch now that the dry-run rail
- * is gone, so its row carries a live/dead [KilnDot] and the force-run button
+ * The active flag is the system's only kill switch, so its row carries a
+ * live/dead [KilnDot] and the force-run button
  * is the danger variant — a forced run places real orders on the live
  * account and nothing downstream will stop it.
  *

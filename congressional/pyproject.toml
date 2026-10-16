@@ -3,9 +3,7 @@ name = "congressional"
 version = "1.0.0"
 description = "House + Senate trade-disclosure pipeline feeding the Claude-Portfolio trading bot"
 requires-python = ">=3.12"
-# Only what the ingest -> enrich -> export pipeline needs. Trade-Parser's
-# website dependencies (fastapi, uvicorn, stripe, bcrypt, pyjwt, sentry, mcp,
-# alembic, psycopg2, alpaca-py) were dropped with the site.
+# Only what the ingest -> enrich -> export pipeline needs.
 dependencies = [
     "anthropic>=0.115.1",   # Claude vision OCR for scanned/paper PTRs
     "beautifulsoup4>=4.12", # Senate e-filing HTML
@@ -46,8 +44,7 @@ ignore = [
     "B008",  # typer Option() in argument defaults is idiomatic
     "E702",  # deliberate compact "a; b" assignment pairs in the query builders
     # S608 (hardcoded-SQL): every user-supplied value is a bound parameter and
-    # only whitelisted, code-defined fragments are interpolated (verified in
-    # Trade-Parser 2026-06-25; the query code is carried over unchanged).
+    # only whitelisted, code-defined fragments are interpolated.
     "S608",
 ]
 

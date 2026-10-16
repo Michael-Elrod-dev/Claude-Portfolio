@@ -11,7 +11,6 @@
     "memo": "node run-memo.js",
     "briefing": "node run-briefing.js",
     "analyst": "node run-analyst.js",
-    "memo-updater": "node run-memo-updater.js",
     "executor": "node run-executor.js"
   },
   "keywords": [],
@@ -24,7 +23,6 @@
     "@aws-sdk/client-dynamodb": "^3.1042.0",
     "@aws-sdk/client-s3": "^3.1042.0",
     "@aws-sdk/client-secrets-manager": "^3.1042.0",
-    "@aws-sdk/client-ses": "^3.1042.0",
     "@aws-sdk/client-ssm": "^3.1042.0",
     "@aws-sdk/lib-dynamodb": "^3.1042.0",
     "dotenv": "^17.4.2",

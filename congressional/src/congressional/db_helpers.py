@@ -34,11 +34,11 @@ def issuer_id_for(ticker: str) -> str:
 
 
 # ---- Canonical politician identity -----------------------------------------
-# The old chamber-state-lastname id both over-merged (two different people) and
-# under-merged (one member's name variants). The canonical identity is the member's
+# A chamber-state-lastname id both over-merges (two different people) and
+# under-merges (one member's name variants). The canonical identity is the member's
 # bioguide id (official, unique, stable) when the filer resolves to a member; the
 # unresolved tail (candidates, name-only matches — all zero-trade in our data) gets
-# a stable dash-free hash so distinct people don't collide. See docs/STATUS.md.
+# a stable dash-free hash so distinct people don't collide.
 
 
 def canonical_politician_id(
@@ -130,7 +130,7 @@ def amount_midpoint(low: int | None, high: int | None) -> float:
 # the column for SP/DC/JT, so blank means unmarked. Report it honestly as
 # "Undisclosed" (most trackers do the same). "SELF" is the explicit Self
 # option on Senate filings (stored only for rows parsed after 2026-06-10 —
-# see STATUS.md).
+# see senate/html_parser.py).
 _OWNER_MAP = {
     None: "Undisclosed",
     "": "Undisclosed",

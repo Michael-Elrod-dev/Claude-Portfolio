@@ -86,9 +86,9 @@ test('the 9/7 UNH exit no longer sends a notional', async () => {
 });
 
 test('there is no dry-run escape hatch: a full exit always hits the API', async () => {
-  // The dryRun option was removed when the paper account went away. Passing
-  // it (or anything else) must not resurrect a no-op path — the position is
-  // closed for real, and no result ever carries a dry_run status.
+  // Passing a dryRun option (or anything else) must not create a no-op
+  // path — the position is closed for real, and no result ever carries a
+  // dry_run status.
   const ex = build({ positions: [UNH] }, { dryRun: true });
   const out = await ex.execute(recs(sellAll('UNH')));
 
@@ -131,8 +131,8 @@ test('a genuine close failure is still reported as failed', async () => {
 // ── The stranded JPM dust ────────────────────────────────────────────────
 
 test('a sub-$1 exit is attempted rather than pre-skipped', async () => {
-  // The old executor skipped this at the MIN_NOTIONAL gate on every run,
-  // so the stub could never leave the account.
+  // Pre-skipping this at the MIN_NOTIONAL gate would mean the stub could
+  // never leave the account.
   const ex = build({ positions: [JPM_DUST] });
   const out = await ex.execute(recs(sellAll('JPM')));
 

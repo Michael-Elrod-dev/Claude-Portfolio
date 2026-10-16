@@ -5,13 +5,9 @@ This is what the trading bot's CongressionalSource reads from S3
 .github/workflows/congressional-export.yml, after `poll` has ingested the
 latest House and Senate filings into the cached SQLite database.
 
-Lineage: this replaces a predecessor that produced the same file by booting
-a whole web API in-process and paging its endpoints over an ASGI transport
-(congressional/README.md has the history). Here that API's query +
-row-shaping code is called directly (`trades.list_trades`, `politicians.list_politicians`) and the paging
-walk is kept exactly, so the snapshot is byte-identical to what the old
-script wrote for the same database — proven during the migration (identical
-sha256 across seven windows on two databases) and pinned by tests/test_export.py.
+It calls the query + row-shaping code directly (`trades.list_trades`,
+`politicians.list_politicians`) and walks it page by page, newest-filed first;
+tests/test_export.py pins the walk and the wire shape.
 
 Output shape (consumed by data-gatherers/sources/CongressionalSource.js):
     {
@@ -23,8 +19,8 @@ Output shape (consumed by data-gatherers/sources/CongressionalSource.js):
 
 `trades` holds every row whose `published` (filing) date falls inside the
 window; the bot applies its own tighter cutoff and size filters on top.
-Field names are the hosted API's camelCase wire names (Trade / Politician in
-schema.py serialize by alias), which the bot's normalization relies on.
+Field names are camelCase wire names (Trade / Politician in schema.py
+serialize by alias), which the bot's normalization relies on.
 """
 
 from __future__ import annotations
@@ -36,8 +32,8 @@ from pathlib import Path
 from congressional.politicians import list_politicians
 from congressional.trades import list_trades
 
-# Paging constants are the old script's, unchanged. The page size is not a
-# tuning knob here: the walk below stops at page boundaries, so changing it
+# The page size is not a tuning knob: the walk below stops at page
+# boundaries, so changing it
 # would change which rows a degenerate snapshot contains.
 PAGE_SIZE = 96
 # Safety cap. A 14-day filing window is a tiny slice of the year; if the

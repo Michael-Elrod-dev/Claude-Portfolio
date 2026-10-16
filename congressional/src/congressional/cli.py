@@ -273,12 +273,6 @@ def poll(
         "--data-dir",
         help="Where the SQLite DB, ZIPs, and poll state file are stored.",
     ),
-    once: bool = typer.Option(
-        True,
-        "--once/--no-once",
-        help="Kept for compatibility. Polling is always a single cycle now; the "
-        "long-running poller served the retired website.",
-    ),
 ) -> None:
     """Run one poll cycle: ingest any new House/Senate filings, then refresh
     filer enrichment and rebuild the read model if anything new landed.
@@ -286,10 +280,6 @@ def poll(
     import datetime
 
     from congressional.poller import _PollState, poll_once, years_to_poll
-
-    if not once:
-        typer.secho("--no-once is not supported; polling is single-cycle.", fg=typer.colors.RED, err=True)
-        raise typer.Exit(code=2)
 
     _require_database_url("the poller")
 

@@ -61,10 +61,6 @@ async function loadSecrets() {
     throw new Error(`Secret "${SECRET_NAME}" is not valid JSON.`);
   }
 
-  // TRADE_PARSER_API_KEY used to be required here. It only authenticated the
-  // hosted disclosures API retired in July 2026 — congressional data now comes
-  // from an S3 snapshot — so it is no longer checked (a stale value left in
-  // the secret is harmless).
   const required = ['ANTHROPIC_API_KEY', 'ALPACA_KEY_ID', 'ALPACA_SECRET_KEY', 'FINNHUB_API_KEY'];
   const missing = required.filter((k) => !parsed[k]);
   if (missing.length > 0) {

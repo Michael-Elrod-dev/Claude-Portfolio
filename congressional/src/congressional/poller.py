@@ -1,8 +1,6 @@
 """Polls House and Senate disclosure sources for new filings and ingests them.
 
-Single-cycle only: the export workflow runs `poll --once` twice a week. The
-hosted product's long-running loop, heartbeat, market-data refresh, alerts
-and AI brief were removed along with the website they served.
+Single-cycle only: the export workflow runs `poll` twice a week.
 """
 
 import json

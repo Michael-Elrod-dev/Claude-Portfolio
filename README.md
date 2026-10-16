@@ -8,20 +8,17 @@ and reports results to an Android companion app via FCM push notification.
 The core design principle is **"humans control the inputs, Claude controls
 the decisions"** — we do not shape what Claude buys, only what data it sees.
 
-> **History:** this began as a paper-trading research project run in parallel
-> to a separate Pelosi-Mirror real-money strategy. That experiment concluded
-> in June 2026; Claude was then given control of the (formerly Pelosi) live
-> brokerage account, which it now trades. In October 2026 the paper account
-> was removed outright: there is one real-money account, no account
-> switching, and no dry-run mode anywhere in the codebase.
+It trades a single real-money Alpaca account. There is no paper account,
+no account switching and no dry-run mode.
 
-The system has three deployable units:
+The system has four deployable units:
 
 | Unit | What it is | Where it runs |
 |---|---|---|
 | **Pipeline** (`data-gatherers/`) | The trading bot itself: briefing → analysis → memo → executor | AWS Lambda `claude-portfolio-trader`, fired by EventBridge Mon + Thu @ 13:00 UTC |
 | **HTTP API** (`api/`) | Read-only views over Alpaca + DynamoDB + S3 + SSM, plus a few writes | AWS Lambda `claude-portfolio-api` behind API Gateway HTTP API |
 | **Android app** (`android/`) | Personal-use companion: portfolio, last run, memo, history, settings, push | Side-loaded Kotlin/Compose app on the user's phone |
+| **Congressional export** (`congressional/`) | House + Senate disclosure ingest → the `congressional.json` snapshot the pipeline reads | GitHub Actions, `.github/workflows/congressional-export.yml` |
 
 ---
 
@@ -48,16 +45,16 @@ EventBridge (Mon + Thu @ 13:00 UTC)
    ──┬──  DynamoDB  claude-portfolio-runs       (run record, 30d TTL)
      ├──  DynamoDB  claude-portfolio-activity   (event log, 30d TTL)
      ├──  S3        memo.json                   (overwritten each run)
-     └──  FCM       run_complete · queued · briefing_error · run_failed
+     └──  FCM       run_complete · briefing_error · run_failed
                           │
                           ▼
                     Android app  ◄──  HTTP API Lambda
                                        /portfolio · /memo · /runs · /flags · ...
 ```
 
-Three components, three lambdas: pipeline, HTTP API, FCM publisher
-(embedded in the pipeline lambda). Each has natural checkpoints between
-phases.
+Two Lambdas: the pipeline (which also sends the FCM pushes) and the HTTP
+API. The congressional snapshot is produced separately by a GitHub Actions
+workflow the evening before each run.
 
 ### What is programmatic vs. what Claude does at runtime
 
@@ -83,6 +80,7 @@ tool, where its synthesis ability adds the most value.
 
 ```
 data-gatherers/                     ← Pipeline lambda code
+├── alpacaClient.js                ← the one Alpaca client factory (live endpoint pinned)
 ├── sources/
 │   ├── DataSource.js              ← abstract base class, fetch() contract
 │   ├── AlpacaSource.js            ← portfolio + recent orders
@@ -98,6 +96,7 @@ data-gatherers/                     ← Pipeline lambda code
 ├── analyst/
 │   ├── Analyst.js                 ← trade-recommendations Claude call
 │   ├── MemoUpdater.js             ← memo-rewrite Claude call
+│   ├── claudeRequest.js           ← shared streaming request + refusal fallback
 │   └── parseResponse.js           ← shared: extract JSON from final text block
 ├── prompts/
 │   ├── analystSystemPrompt.js     ← Analyst system prompt (cached)
@@ -112,11 +111,9 @@ data-gatherers/                     ← Pipeline lambda code
 │   ├── secretsLoader.js           ← Secrets Manager + SSM active-flag reader
 │   ├── runArchiver.js             ← writes one row per run to claude-portfolio-runs
 │   ├── activityLogger.js          ← appends events to claude-portfolio-activity
-│   ├── fcmPublisher.js            ← lazy-loads firebase-admin, sends pushes
-│   └── emailer.js                 ← legacy SES notifier (currently disabled)
-├── fixtures/
-│   └── test-recommendations.json  ← edge-case fixture for executor tests
-├── run-*.js                       ← npm-script test harnesses
+│   └── fcmPublisher.js            ← lazy-loads firebase-admin, sends pushes
+├── **/*.test.js                   ← node:test suites (`npm test`)
+├── run-*.js                       ← npm-script harnesses for running one stage by hand
 ├── .env / .env.example            ← gitignored — local secrets only
 └── package.json
 
@@ -145,7 +142,7 @@ android/                            ← Kotlin/Compose companion app
 ├── build.gradle.kts                  root Gradle (Compose, Kotlin, Firebase plugins)
 ├── app/
 │   ├── build.gradle.kts            ← app module deps + conditional google-services
-│   ├── google-services.json        ← Firebase Android config (committed; not secret)
+│   ├── google-services.json        ← Firebase Android config (gitignored)
 │   └── src/main/
 │       ├── AndroidManifest.xml
 │       ├── java/com/claudeportfolio/app/
@@ -154,8 +151,8 @@ android/                            ← Kotlin/Compose companion app
 │       │   ├── PortfolioApp.kt              ← Application — registers notification channel
 │       │   ├── data/
 │       │   │   ├── api/
-│       │   │   │   ├── PortfolioApi.kt       ← suspend interface, MockApi + RetrofitApi
-│       │   │   │   ├── MockApi.kt            ← in-memory data for dev/first-launch
+│       │   │   │   ├── PortfolioApi.kt       ← suspend interface the screens call
+│       │   │   │   ├── NotConnectedApi.kt    ← stand-in until a base URL + token are saved
 │       │   │   │   ├── PortfolioService.kt   ← Retrofit + envelope types
 │       │   │   │   ├── ApiFactory.kt         ← per-(baseUrl, token) Retrofit builder
 │       │   │   │   └── RetrofitApi.kt
@@ -169,8 +166,8 @@ android/                            ← Kotlin/Compose companion app
 │       │       ├── RootScreen.kt             ← NavController + tab routing
 │       │       ├── LocalApi.kt               ← API + IsLive + RefreshTick CompositionLocals
 │       │       ├── UiState.kt                ← Loading/Ready/Error + rememberLoadable
-│       │       ├── theme/                    ← Color, Type, Theme
-│       │       ├── components/               ← AppBar, BottomNav, NavIcons, Skeleton
+│       │       ├── theme/                    ← Kiln tokens: Color, Type, Dimens, Theme
+│       │       ├── components/               ← AppBar, BottomNav, Kiln, NavIcons, Skeleton
 │       │       ├── format/Format.kt          ← USD / pct / date formatters
 │       │       └── screens/                  ← 5 tabs + RunDetail
 │       └── res/                              ← icons, strings, themes, font_certs
@@ -189,12 +186,16 @@ infra/                              ← AWS provisioning + deploy scripts
 ├── policy.json                    ← IAM policy for the pipeline lambda
 └── api-policy.json                ← IAM policy for the API lambda
 
+congressional/                      ← Python (uv) disclosure pipeline — see congressional/README.md
+.github/workflows/
+└── congressional-export.yml       ← runs the congressional pipeline, uploads the snapshot
+
 README.md                           ← (this file)
 ```
 
 Every data source extends `DataSource` and exposes a single `fetch()`
-method returning a structured JSON snapshot. The runners are thin test
-harnesses; `BriefingAssembler` orchestrates them in production.
+method returning a structured JSON snapshot. The `run-*.js` scripts are
+thin harnesses; `BriefingAssembler` orchestrates the sources in production.
 
 ---
 
@@ -258,9 +259,7 @@ bash infra/setup-api.sh       # creates API Lambda role/policy, Lambda
 
 bash infra/deploy-api.sh      # uploads the API code
 
-# print the URL + bearer token (you'll paste both into the Android app):
-echo "API URL: $(aws lambda get-function-url-config \
-  --function-name claude-portfolio-api --query FunctionUrl --output text)"
+# setup-api.sh prints the API Gateway URL; reveal the bearer token with:
 aws secretsmanager get-secret-value \
   --secret-id claude-portfolio/api-bearer-token \
   --query SecretString --output text
@@ -365,11 +364,6 @@ GitHub Actions workflow that ingests House and Senate trade disclosures into
 a cached SQLite database and exports the last 14 days of filings plus the
 member directory. No API key is involved.
 
-> History: this first scraped Capitol Trades' embedded Next.js payload, then
-> read a hosted disclosures API run by a separate project. When that
-> project's website was retired, its ingest pipeline moved into this repo as
-> `congressional/`, producing a byte-for-byte identical snapshot.
-
 **Role:** the actual **signal source** for this project. The pattern of
 who is trading what, when, and at what size is the closest thing to a real
 edge in this whole pipeline.
@@ -377,7 +371,7 @@ edge in this whole pipeline.
 **Output shape:**
 ```
 {
-  windowDays, minSizeRank, fetchedAt, count,
+  windowDays, minSizeRank, snapshotAt, fetchedAt, count,
   trades: [{ ticker, txType, txDate, filedDate, owner,
              sizeLabel, sizeExact, sizeRank, price,
              politician, party, chamber, state }]
@@ -388,20 +382,17 @@ edge in this whole pipeline.
 - **Lookback is on `filedDate`, not `txDate`.** Under the STOCK Act, members
   have up to 45 days to disclose. A 7-day filter on transaction date misses
   almost everything. Filing date answers the right question: "what trades
-  have become public since the last weekly run?" The API's `since` param
-  filters on the *traded* date, so we don't use it — instead we page through
-  `sort=published&dir=desc` and stop once we cross the filing-date cutoff.
-- **Size is a bucket, not an exact value.** The API reports trade size as a
-  ranked bucket (`sizeRank` 1 = $1K–15K, 2 = $15K–50K, …) rather than a
-  dollar figure. Default `minSizeRank = 2` reproduces the old `$15k` floor
-  by excluding the smallest bucket — roughly the STOCK Act reporting floor,
-  below which members aren't required to disclose anyway.
-- **Politician join.** Trades carry only a `politicianId` (e.g. `S-peters`).
-  We fetch `/v1/politicians` once per run and index by id to resolve the
-  name, party, and chamber.
-- **Pagination.** We walk pages of 96 newest-filed-first until the cutoff,
-  capped at `MAX_PAGES` as a safety stop. A 7-day filing window is a small
-  slice of the full history, so this terminates quickly.
+  have become public since the last run?" The snapshot carries ~14 days of
+  filings; the source keeps the last 7.
+- **Size is a bucket, not an exact value.** Trade size is a ranked bucket
+  (`sizeRank` 1 = $1K–15K, 2 = $15K–50K, …) rather than a dollar figure.
+  Default `minSizeRank = 2` excludes the smallest bucket.
+- **Politician join.** Trades carry only a `politicianId` (e.g. `S-peters`);
+  the snapshot's member directory resolves name, party, chamber and state.
+- **Staleness is an error.** A snapshot older than 8 days throws, which lands
+  in `briefing.errors` and reaches the phone as a `briefing_error` push —
+  usually the export workflow failing, or GitHub disabling its cron after 60
+  idle days.
 - **Duplicate trades are real, not bugs.** When a member sells the same
   stock several times in one day, each transaction is disclosed separately.
   We pass them through faithfully — Claude can decide how to weight them.
@@ -490,10 +481,9 @@ every week.
   memo. Comfortably under any context limit. If this grows past ~20k
   tokens we'd want to start trimming low-value fields rather than expand
   blindly.
-- **EarningsSource's `symbols` argument moved from constructor to fetch().**
-  Stable config (apiKey, windowDays) lives on the instance; data only
-  known at assembly time (the symbol list) is passed at call time. This
-  keeps the source reusable across runs without mutation.
+- **EarningsSource takes `symbols` at `fetch()` time.** Stable config
+  (apiKey, windowDays) lives on the instance; the symbol list is only
+  known at assembly time, so it is passed per call.
 
 ### Analyst (`analyst/Analyst.js`)
 
@@ -533,13 +523,10 @@ trade recommendations. This is the brain of the pipeline.
   isn't just convention: the Anthropic prompt cache is a strict prefix
   match, so anything stable in the system prompt costs ~0.1× on read
   versus full price on a cache miss.
-- **Why no `output_config.format` (yet).** Anthropic's structured-outputs
-  feature is documented as incompatible with citations, and the web
-  search tool produces citations by default. Rather than ship a config
-  that might 400 in production, we instruct strict JSON in the system
-  prompt and parse the last text block of the response. If we ever see
-  a malformed JSON response in practice, we can revisit. In Claude we
-  trust, but verify.
+- **Why no `output_config.format`.** Structured outputs are documented as
+  incompatible with citations, and the web search tool produces citations
+  by default. The system prompt asks for strict JSON instead and the
+  parser reads the last text block of the response.
 - **Why parse the LAST text block.** When web search runs, the response
   contains interleaved text, `server_tool_use`, and
   `web_search_tool_result` blocks. Mid-conversation text is reasoning
@@ -548,15 +535,12 @@ trade recommendations. This is the brain of the pipeline.
 - **Markdown fence fallback.** Even with explicit instructions not to
   wrap output in markdown, models occasionally do. The parser strips
   ```` ```json ... ``` ```` fences before parsing as a defensive measure.
-- **Measured cost per run (9 runs, 2026-09-17 → 2026-10-15).** Analyst
-  14.4k–26.9k input and 7.4k–22.2k output, averaging **$0.46/run** at
-  Opus 5 pricing. MemoUpdater output averages 10.0k (max 12.8k) for
-  about **$0.35/run**. Web search runs 10–13 calls at $10/1k, so
-  **~$0.12/run**. Total **~$0.93/run, ~$2/week, ~$100/year** — the
-  Opus 5.5 bump takes roughly 20% off the token share of that.
-  Worth stating plainly: on a ~$132 account this spend exceeds the
-  returns, so the system is an experiment, and the variable worth
-  optimizing is decision quality rather than cost.
+- **Cost per run.** Measured over 9 runs (2026-09-17 → 2026-10-15) at
+  Opus 5 prices: Analyst ~$0.46, MemoUpdater ~$0.35, web search ~$0.12
+  (10–13 calls at $10/1k) — **~$0.93/run, ~$100/year**. Opus 5.5's lower
+  prices take roughly 20% off the token share. On a ~$132 account this
+  exceeds the returns, so the variable worth optimizing is decision
+  quality, not cost.
 - **The hard structural rules in the system prompt are guardrails, not
   guidance.** The four rules (US equities only, 30% position cap, no new
   positions inside the earnings window, no penny stocks) prevent
@@ -566,29 +550,25 @@ trade recommendations. This is the brain of the pipeline.
 
 ### S3Backend (`sources/backends/S3Backend.js`)
 
-Production backend for `MemoSource`. Implements the same `{ read(),
-write(), describe() }` contract as `LocalFileBackend`, so swapping is
-seamless.
+Production backend for `MemoSource`, also used by `CongressionalSource` to
+read the snapshot. Implements the same `{ read(), write(), describe() }`
+contract as `LocalFileBackend`.
 
-**Setup (already done):**
-- Bucket: `claude-portfolio-${AWS_ACCOUNT_ID}` in `us-east-1`
+**Bucket:**
+- `claude-portfolio-${AWS_ACCOUNT_ID}` in `us-east-1`
 - Public access fully blocked (all four ACL/policy flags set)
-- No versioning yet (intentional — adds complexity without immediate
-  value; revisit if we want memo history)
+- No versioning — the memo is overwritten each run
 
 **Notes / considerations:**
 - **Credentials come from the standard AWS SDK chain** (env vars, shared
   credentials file, IAM role). No keys live in code or `.env`. Locally,
-  this resolves to your `aws configure` profile; on Lambda, it'll be the
-  Lambda execution role.
+  this resolves to your `aws configure` profile; on Lambda, the execution
+  role.
 - **`read()` returns null when the key doesn't exist.** Other errors
   (permission denied, network) propagate as-is — those should fail loudly
   so we notice misconfigurations.
-- **`write()` always sets `ContentType: application/json`.** The only
-  consumer today is the memo. If we ever store non-JSON, take a content
-  type argument.
-- **Round-trip verified** locally against the real bucket: write a string,
-  read it back, contents match exactly.
+- **`write()` always sets `ContentType: application/json`.** Everything it
+  stores is JSON.
 
 ### Backend factory (`sources/memoBackendFactory.js`)
 
@@ -600,8 +580,8 @@ otherwise             → LocalFileBackend (development)
 ```
 
 Centralizing this means every runner — `run-memo`, `run-briefing`,
-`run-analyst`, `run-memo-updater`, and the eventual Lambda handler — makes
-the same decision the same way. Switching environments is a single env
+`run-analyst`, and the Lambda handler — makes the same decision the same
+way. Switching environments is a single env
 var flip, not a code change.
 
 ### MemoUpdater (`analyst/MemoUpdater.js`)
@@ -630,9 +610,8 @@ memo that gets written back to S3 (or the local file in development).
   inputs (prior memo + briefing + recommendations). No external research
   is needed, which makes the call faster and cheaper than the Analyst's.
 - **Lower max_tokens (32k) than the Analyst's 64k.** Memo output is
-  bounded by the schema, not open-ended. It was 16k and came close to
-  truncating — output sat at 9.1–10.7k for weeks then jumped to 12.8k
-  on 2026-10-15, and an earlier 8k cap had already thrown once.
+  bounded by the schema, not open-ended; it runs 9–13k, so 32k is
+  headroom rather than spend.
 - **`effort: "high"`** rather than `xhigh`. Bookkeeping is not deep
   agentic reasoning — `high` is the better cost/quality balance for a
   schema-bounded transformation. Keep it explicit; Opus 5.5 would
@@ -668,7 +647,6 @@ trades — and therefore the one with the most defensive defaults.
 | Status | When | Order placed? |
 |---|---|---|
 | `executed` | Submitted to Alpaca | Yes |
-| `queued_for_review` | Confidence not in `autoExecute` set | No |
 | `skipped` | Pre-flight check failed (no position, sub-minimum, etc.) | No |
 | `failed` | Alpaca API rejected the submission | No (or partial) |
 
@@ -679,16 +657,13 @@ trades — and therefore the one with the most defensive defaults.
   `ALPACA_KEY_ID`/`ALPACA_SECRET_KEY` secret. The only gate is SSM
   `claude-portfolio-active`, checked at the top of every invocation, plus
   the two EventBridge rules — `bash infra/toggle.sh off` sets all three.
-  The old `EXECUTOR_LIVE` env var and SSM `claude-portfolio-live` dry-run
-  rail were deleted in October 2026 along with the paper account, so a
-  deploy can no longer arm or disarm trading and `deploy.sh` rejects the
-  retired `--live` / `--dry-run` flags.
-- **Confidence gates auto-execution.** By default only `confidence: high`
-  recommendations are auto-submitted; `medium` and `low` come back with
-  status `queued_for_review` so a human can decide. Configurable via
-  the `autoExecute` constructor option.
-- **Sells run before buys** so cash is freed before being deployed.
-  Same pattern as the Pelosi-Mirror executor.
+  A deploy cannot arm or disarm trading.
+- **Every recommendation is submitted, whatever its confidence.**
+  Confidence is recorded with the result as Claude's stated conviction;
+  the executor does not gate on it.
+- **Sells run before buys** so cash is freed before being deployed. The
+  executor waits for the sells to settle and refreshes the account before
+  placing buys.
 - **Idempotency via deterministic `client_order_id`.** Each order's ID
   is `cp-YYYYMMDD-TICKER-action`. If the cron fires twice or someone
   re-runs the script the same day, Alpaca rejects the duplicate rather
@@ -706,14 +681,13 @@ trades — and therefore the one with the most defensive defaults.
   is of total portfolio equity (deploy this much cash). On a sell,
   percent is of the current position's market value (trim by this much).
   This is more intuitive and prevents oversells. The Analyst's system
-  prompt is updated to match.
+  prompt describes the same semantics.
 - **Telemetry on every result** includes the original recommendation,
   resolved sizing, status, reason, and (if executed) Alpaca order ID.
   This is the audit trail.
-- **The fixture (`fixtures/test-recommendations.json`) covers six cases**
-  — full sell, partial sell, ticker-not-held, dollar buy, low-confidence
-  buy, and below-minimum. Useful for sanity-checking changes to the
-  sizing resolver or status logic without spending Claude tokens.
+- **Tests.** `Executor.test.js` and `sizingResolver.test.js` run against a
+  fake Alpaca client, so the sizing and status logic can be changed without
+  touching the brokerage or spending Claude tokens (`npm test`).
 
 ### Sizing resolver (`executor/sizingResolver.js`)
 
@@ -723,68 +697,3 @@ or `{ kind: "notional", value }`. Lives in its own file so it can be
 unit-tested in isolation. Returns `{ kind: "error", message }` for
 sizing impossibilities (no position to sell, percent > 100, etc.) and
 the Executor turns those into `skipped` results.
-
----
-
-## Cross-cutting considerations (parked for later)
-
-These don't belong to any one component but will need to be addressed
-before deployment.
-
-- **API key rotation** — the Alpaca and Finnhub keys are
-  currently in `.env`. For Lambda, move to AWS Secrets Manager. Never put
-  them in environment variables on the Lambda itself.
-- **Guardrails vs. guidance.** The "humans control inputs, Claude controls
-  decisions" principle rules out telling Claude *what* to buy. It does not
-  rule out telling Claude *what not to do* (e.g., don't put 80% of the
-  account in one stock, don't trade options). Worth a deliberate
-  conversation when we get to the system prompt.
-- **Secrets hygiene.** Live keys were pasted in chat during the June 2026
-  migration and rotated on 2026-07-06. Rotate again if they are ever
-  exposed; these keys move real money.
-- **Observability.** When this runs unattended, we need logs we can read
-  later to understand why Claude made each call. The briefing JSON is the
-  audit trail; persist each week's briefing to S3 alongside the memo.
-
----
-
-## Build status
-
-### Pipeline
-- [x] AlpacaSource — portfolio, cash, recent orders
-- [x] EarningsSource — earnings calendar guardrail
-- [x] CongressionalSource — S3 snapshot from `congressional/`
-- [x] MemoSource — pluggable backend (local file + S3)
-- [x] BriefingAssembler — orchestrates all sources into one JSON
-- [x] Analyst — Anthropic API call, web search, JSON parsing
-- [x] MemoUpdater — second Claude call, rewrites memo post-decision
-- [x] S3Backend for MemoSource — round-trip verified
-- [x] Executor — places real orders on Alpaca; idempotent, no dry-run
-- [x] Lambda packaging + deployment (`infra/setup.sh` + `infra/deploy.sh`)
-- [x] EventBridge cron + Secrets Manager (no keys in env vars)
-- [x] SSM flag (`active`) + `toggle.sh` switch — the only kill switch
-- [x] DynamoDB run archive + activity log (30-day TTL on both)
-- [x] Live execution enabled — Mon + Thu @ 13:00 UTC, real money
-
-### HTTP API
-- [x] All 12 endpoints (portfolio, memo, runs/*, briefing/latest, activity, flags/active, devices, run/force)
-- [x] Bearer-token auth — token stored in Secrets Manager, constant-time compare
-- [x] API Gateway HTTP API + Lambda (`api/` package)
-- [x] Provisioned via `infra/setup-api.sh` + deployed via `infra/deploy-api.sh`
-
-### Android app
-- [x] Compose + Material 3, dark-only, custom AppBar + BottomNav
-- [x] All five screens — Portfolio, Last run, Memo, History, Settings — plus Run detail
-- [x] Mock data + real API toggle via DataStore-backed config
-- [x] Loading skeletons (shimmer-animated `Line2` rectangles)
-- [x] Pull-to-refresh on Portfolio, Last run, History
-- [x] FCM push notifications with deep-link handling
-- [x] Runtime POST_NOTIFICATIONS permission request
-- [x] Pixel-faithful match to the handoff's "Quiet" artboard
-
-### Out of scope (deliberate)
-- ~~Hilt DI~~ — `staticCompositionLocalOf` is enough at this app size
-- ~~Room offline cache~~ — refetch on tab change is fine for a weekly app
-- ~~WorkManager periodic refresh~~ — FCM push covers it
-- ~~Release APK signing~~ — debug build sideloads fine for personal use
-- ~~Pelosi-Mirror integration~~ — separate project, separate codebase

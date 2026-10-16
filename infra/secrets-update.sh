@@ -44,8 +44,7 @@ NEW_SECRET=$(python3 -c "
 import json, sys
 current = json.loads('''${CURRENT}''')
 # Start from the current secret so keys this script doesn't manage are kept,
-# never silently dropped. (TRADE_PARSER_API_KEY, for the retired disclosures
-# API, is no longer prompted for; congressional/README.md covers removing it.)
+# never silently dropped.
 updates = dict(current)
 updates.update({
   'ANTHROPIC_API_KEY': '''${ANTHROPIC_API_KEY}''' or current.get('ANTHROPIC_API_KEY',''),

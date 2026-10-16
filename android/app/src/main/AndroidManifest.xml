@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- Network for the API + (later) FCM -->
+    <!-- Network for the API and FCM -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
-    <!-- POST_NOTIFICATIONS is runtime on Android 13+. We'll request it
-         when FCM is wired (Phase 6). -->
+    <!-- POST_NOTIFICATIONS is a runtime permission on Android 13+;
+         MainActivity requests it on launch. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <application

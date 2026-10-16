@@ -20,7 +20,7 @@
  *
  * Why sells size in SHARES, and full exits get their own kind
  * -----------------------------------------------------------
- * Sells used to be sized as a dollar notional (marketValue * pct). Alpaca
+ * A sell sized as a dollar notional (marketValue * pct) is unsafe: Alpaca
  * converts a notional back into shares at the *execution* price, so any
  * tick between our snapshot and the fill changes the implied share count:
  *

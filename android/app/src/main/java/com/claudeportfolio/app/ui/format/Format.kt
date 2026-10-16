@@ -79,9 +79,8 @@ fun fmtNum(n: Double?, decimals: Int = 0): String {
  * Share quantity, for an account that holds nothing but fractional
  * positions.
  *
- * This exists because the screens used to print `qty.toInt()`, which
- * rendered every single holding in this portfolio as "0 sh" — the largest
- * position is 0.0687 shares of GOOGL. Fractions below 1 keep enough
+ * `qty.toInt()` would render every holding as "0 sh" — positions here are
+ * fractions of a share. Fractions below 1 keep enough
  * significant digits to be meaningful without printing Alpaca's full
  * nine-decimal precision; whole-ish counts stay compact.
  */

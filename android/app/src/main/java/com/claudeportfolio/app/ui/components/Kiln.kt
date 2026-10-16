@@ -71,7 +71,7 @@ import com.claudeportfolio.app.ui.theme.smallBody
  *      elevation parameter.
  *   2. NO SHIMMER on skeletons. "A shape where a value would be. Never a
  *      shimmer. The slot staying empty IS the message; a zero would be a
- *      lie." The pre-Kiln theme animated these; [KilnSkeleton] does not.
+ *      lie." [KilnSkeleton] is a flat shape.
  *   3. Pills are for STATE, never for content. [KilnPill] and [KilnChip]
  *      report status; anything holding data uses [KilnCard]'s 10dp radius.
  */

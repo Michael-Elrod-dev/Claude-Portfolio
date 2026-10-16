@@ -91,12 +91,12 @@ class DailyClose(Base):
 class FilerEnrichment(Base):
     """Materialized per-filer enrichment from the congress-legislators dataset.
 
-    Party / gender / committee are otherwise resolved only at API-response time
-    (see api/routes/politicians.py), so the trades query can't filter by them.
-    This table materializes that resolution, keyed the same way the API groups
+    Party / gender / committee are otherwise resolved per request by
+    `politicians.py`, so the trades query can't filter by them.
+    This table materializes that resolution, keyed the same way the member list groups
     filers — (chamber, state_district, last) — with state_district normalised to
     '' for the Senate (which carries none) so it can be part of the primary key.
-    Repopulated by `trade-parser enrich-filers`.
+    Repopulated by `congressional enrich-filers` (and by `poll`).
     """
 
     __tablename__ = "filer_enrichment"

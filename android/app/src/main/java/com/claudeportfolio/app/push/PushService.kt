@@ -12,8 +12,8 @@ import com.google.firebase.messaging.RemoteMessage
 
 /**
  * Receives data-only FCM payloads from the pipeline and surfaces them as
- * system notifications. All four payload kinds (`run_complete`,
- * `queued_for_review`, `briefing_error`, `run_failed`) are emitted by
+ * system notifications. All three payload kinds (`run_complete`,
+ * `briefing_error`, `run_failed`) are emitted by
  * `data-gatherers/lambda/fcmPublisher.js`.
  *
  * The service intentionally posts the notification ourselves rather than
@@ -79,15 +79,9 @@ class PushService : FirebaseMessagingService() {
             PushConstants.KIND_RUN_COMPLETE -> {
                 val recCount = data["recCount"] ?: "?"
                 val executed = data["executed"] ?: "0"
-                val queued = data["queuedForReview"] ?: "0"
                 val summary = data["summary"]?.takeIf { it.isNotBlank() }
-                val sub = "$recCount recs · $executed executed · $queued queued"
+                val sub = "$recCount recs · $executed executed"
                 "Run complete · $runDate" to (summary ?: sub)
-            }
-            PushConstants.KIND_QUEUED_FOR_REVIEW -> {
-                val n = data["count"] ?: "?"
-                "Recommendations queued · $runDate" to
-                    "$n recommendation${if (n == "1") "" else "s"} need your review."
             }
             PushConstants.KIND_BRIEFING_ERROR -> {
                 val n = data["errorCount"] ?: "?"

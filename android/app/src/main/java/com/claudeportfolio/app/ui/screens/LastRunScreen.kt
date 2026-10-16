@@ -317,7 +317,6 @@ internal fun ScreenEmpty(headline: String, copy: String? = null) {
 
 private fun statusLabelAndTone(status: String): Pair<String, Tone> = when (status) {
     "executed" -> "EXECUTED" to Tone.Success
-    "queued_for_review" -> "QUEUED" to Tone.Warning
     "skipped" -> "SKIPPED" to Tone.Neutral
     "failed" -> "FAILED" to Tone.Danger
     "already_submitted" -> "PRIOR RUN" to Tone.Neutral

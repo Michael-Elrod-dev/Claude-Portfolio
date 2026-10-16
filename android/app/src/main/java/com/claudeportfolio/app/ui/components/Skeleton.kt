@@ -21,10 +21,9 @@ import com.claudeportfolio.app.ui.theme.KilnSpace
 /**
  * Loading placeholders.
  *
- * These used to shimmer. Kiln forbids it, in as many words: "Skeleton — a
- * shape where a value would be. Never a shimmer. The slot staying empty IS
- * the message; a zero would be a lie." So the animation is gone and these are
- * flat [KilnColors.borderSubtle] shapes at Kiln's art radius.
+ * Kiln: "Skeleton — a shape where a value would be. Never a shimmer. The
+ * slot staying empty IS the message; a zero would be a lie." So these are
+ * flat [KilnColors.borderSubtle] shapes at Kiln's art radius, unanimated.
  *
  * Each page skeleton mirrors its real screen's vertical rhythm so the layout
  * doesn't jump when data lands.

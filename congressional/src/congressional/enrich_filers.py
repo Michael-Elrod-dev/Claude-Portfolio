@@ -1,12 +1,12 @@
 """Materialize per-filer enrichment (party / gender / committee) from the
 congress-legislators dataset into the `filer_enrichment` table.
 
-Party, gender, and committee are otherwise resolved only at API-response time
-(api/routes/politicians.py), so the trades query can't filter by them. This
-module is the single source of truth for that resolution — the Politicians route
-uses `resolve_filer` too, so the materialized table and the page always agree.
+Party, gender, and committee are otherwise resolved per request, so the trades
+query can't filter by them. This module is the single source of truth for that
+resolution — `politicians.py` uses `resolve_filer` too, so the materialized table
+and the member list always agree.
 
-Repopulate with `trade-parser enrich-filers` (also run weekly by the poller).
+Repopulate with `congressional enrich-filers` (`poll` also runs it).
 """
 
 from __future__ import annotations

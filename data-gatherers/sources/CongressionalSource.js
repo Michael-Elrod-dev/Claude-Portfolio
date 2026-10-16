@@ -16,10 +16,9 @@ const DEFAULT_LOOKBACK_DAYS = 7;
 // "Congressional export" workflow from this repo's Actions tab.
 const MAX_SNAPSHOT_AGE_DAYS = 8;
 
-// The API reports trade size as a bucket, not an exact dollar amount. Ranks:
+// Trade size is a bucket, not an exact dollar amount. Ranks:
 //   1 => $1,001–$15,000, 2 => $15,001–$50,000, 3 => $50,001–$100,000, ...
-// The old scraper filtered on an exact value >= $15,000. minSizeRank = 2
-// reproduces that floor by excluding the smallest ($1K–$15K) bucket.
+// minSizeRank = 2 excludes the smallest ($1K–$15K) bucket.
 const DEFAULT_MIN_SIZE_RANK = 2;
 
 const MONTHS = {
@@ -34,13 +33,9 @@ const PARTY_MAP = { D: 'Democrat', R: 'Republican', I: 'Independent' };
  * Pulls recently DISCLOSED congressional stock trades from the S3 snapshot
  * that this repo's congressional/ pipeline writes.
  *
- * History: this began as a Capitol Trades HTML scraper, then read a hosted
- * disclosures API, then (July 2026) a snapshot exported by a separate
- * project's scheduled workflow. In October 2026 that pipeline moved into
- * this repo as congressional/ (.github/workflows/congressional-export.yml),
- * byte-for-byte compatible, so the normalization below is unchanged. The
- * snapshot holds trades filed in the last ~14 days plus the politician
- * directory, in the camelCase row shape the old API served.
+ * The snapshot is written by .github/workflows/congressional-export.yml
+ * and holds trades filed in the last ~14 days plus the politician
+ * directory, as camelCase rows (congressional/src/congressional/schema.py).
  *
  * The lookback window is applied to the FILING date, not the transaction
  * date. Under the STOCK Act, members have up to 45 days to disclose a
@@ -180,8 +175,8 @@ class CongressionalSource extends DataSource {
     return `${traded.year}-${mm}-${dd}`;
   }
 
-  /** { day: 3, month: "Jul", year: "2026" } => "2026-07-03". (Same shape as
-   *  `traded`; it used to be a "11 Jun" label string in the very old API.) */
+  /** { day: 3, month: "Jul", year: "2026" } => "2026-07-03". Same shape as
+   *  `traded`. */
   _publishedToDate(published) {
     if (!published) return null;
     const mm = MONTHS[published.month];

@@ -14,8 +14,7 @@
  *   7. Execute all recommendations against the live brokerage account
  *   8. Archive the run to DynamoDB (claude-portfolio-runs) so the Android
  *      app can read it back via the API
- *   9. Send notifications: SES email (legacy) and FCM push (new) — both
- *      best-effort and swallow errors so they never fail the run
+ *   9. Send FCM push notifications — best-effort, never fails the run
  *
  * Activity events are appended to claude-portfolio-activity throughout, so
  * the Settings → Recent activity screen has something to show.
@@ -27,7 +26,7 @@
  * sets both.
  *
  * Environment variables (set on the Lambda function, NOT secrets):
- *   MEMO_S3_BUCKET   — S3 bucket for memo + queued trades
+ *   MEMO_S3_BUCKET   — S3 bucket for the memo and the congressional snapshot
  *   MEMO_S3_KEY      — S3 key for the memo (default: memo.json)
  *   SECRET_NAME      — Secrets Manager secret name (default: claude-portfolio/api-keys)
  *   AWS_REGION       — auto-injected by Lambda
@@ -51,7 +50,6 @@ const BriefingAssembler = require('../briefing/BriefingAssembler');
 const Analyst = require('../analyst/Analyst');
 const MemoUpdater = require('../analyst/MemoUpdater');
 const Executor = require('../executor/Executor');
-const Emailer = require('./emailer');
 
 // Reused across warm invocations — avoids re-fetching secrets on every call.
 let cachedSecrets = null;
@@ -62,9 +60,6 @@ exports.handler = async (event = {}) => {
   const forced = event?.force === true;
 
   const log = (msg) => console.log(`[${new Date().toISOString()}] ${msg}`);
-
-  const notificationEmail = process.env.NOTIFICATION_EMAIL || null;
-  const emailer = notificationEmail ? new Emailer(notificationEmail) : null;
 
   log(`Claude Portfolio Trader starting (runDate=${runDate}, forced=${forced})`);
   await logActivity('cron_start', { runDate, forced });
@@ -105,8 +100,7 @@ exports.handler = async (event = {}) => {
       }),
       memo: new MemoSource({ backend: memoBackend }),
       // Reads the S3 snapshot the congressional/ export workflow drops in this
-      // project's bucket (the hosted API was retired July 2026). Bucket comes
-      // from MEMO_S3_BUCKET; no API key involved anymore.
+      // project's bucket (MEMO_S3_BUCKET). No API key involved.
       congressional: new CongressionalSource(),
       earnings: new EarningsSource({
         apiKey: cachedSecrets.FINNHUB_API_KEY,
@@ -217,46 +211,16 @@ exports.handler = async (event = {}) => {
       log(`Run archive FAILED (non-fatal): ${archiveErr.message}`);
     }
 
-    // ── 9a. Email notification ──────────────────────────────────────────────
-    if (emailer) {
-      log('Sending email notification...');
-      try {
-        const alpacaForEmail = new AlpacaSource({
-          keyId: cachedSecrets.ALPACA_KEY_ID,
-          secretKey: cachedSecrets.ALPACA_SECRET_KEY,
-        });
-        const alpacaData = await alpacaForEmail.fetch();
-        const positions = alpacaData.positions.holdings;
-        await emailer.sendRunSummary({
-          runDate,
-          execResult,
-          positions,
-          analystSummary: analysis.recommendations?.summary || null,
-        });
-        log('Email sent.');
-      } catch (emailErr) {
-        log(`Email send failed (non-fatal): ${emailErr.message}`);
-      }
-    }
-
-    // ── 9b. FCM push ────────────────────────────────────────────────────────
+    // ── 9. FCM push ─────────────────────────────────────────────────────────
     try {
-      const queuedCount = execResult.summary?.queuedForReview
-        ?? execResult.summary?.queued
-        ?? 0;
-
       const fcmResult = await fcmPublish('run_complete', {
         runDate,
         recCount: enrichedRecs.length,
         executed: execResult.summary?.executed ?? 0,
-        queuedForReview: queuedCount,
         summary: (analysis.recommendations?.summary || '').slice(0, 240),
       });
       log(`FCM run_complete: ${JSON.stringify(fcmResult)}`);
 
-      if (queuedCount > 0) {
-        await fcmPublish('queued_for_review', { runDate, count: queuedCount });
-      }
       if (briefing.errors.length > 0) {
         await fcmPublish('briefing_error', {
           runDate,

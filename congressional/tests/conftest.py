@@ -1,8 +1,4 @@
-"""Shared fixtures for the parser tests.
-
-Only the sample House XML/ZIP fixtures survive from Trade-Parser's conftest;
-the rest served the retired website's auth and API tests.
-"""
+"""Shared fixtures for the parser tests: sample House XML/ZIP payloads."""
 
 import io
 import zipfile

@@ -84,19 +84,3 @@ unset locally unless you mean to spend money on it.
   (a `briefing_error` push); re-enable the workflow from the Actions tab.
 - **The Anthropic key is a copy.** OCR uses the `ANTHROPIC_API_KEY` repo
   secret, a copy of the bot's key from Secrets Manager. Rotate both together.
-
-## History
-
-This was Trade-Parser, a separate project that also ran a public website and
-API. When the site was retired in
-July 2026, the bot became its only consumer, and in October 2026 the ingest
-pipeline moved here. Everything that served the website was removed: the
-FastAPI app, auth, billing, alerts, the AI brief, market data, the Next.js
-frontend, and the website-only tables — about 41,000 of 45,000 lines.
-
-The exporter used to boot the whole web API in-process and page its
-endpoints. It now calls the same query and row-shaping code directly, and was
-proven **byte-for-byte identical** to the original before the switch: matching
-sha256 on seven windows across two databases (the July seed and a freshly
-ingested copy), with the old and new pollers producing identical tables from
-the same sources apart from run timestamps.

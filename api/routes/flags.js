@@ -6,11 +6,9 @@
  * Active controls scheduled cron runs. The pipeline handler reads it on
  * every invocation and exits early if false (unless invoked with force).
  *
- * This is the only flag. There used to be a `live` flag that chose between
- * dry-run and real order placement; it was removed along with the paper
- * account, so every run that gets past `active` places real orders. That
- * makes this endpoint — together with the two EventBridge rules — the off
- * switch for the whole system.
+ * This is the only flag. Every run that gets past `active` places real
+ * orders, so this endpoint — together with the two EventBridge rules — is
+ * the off switch for the whole system.
  *
  * PUT body: { value: true | false }.
  */

@@ -45,7 +45,7 @@ private val googleFontProvider = GoogleFont.Provider(
     certificates = R.array.com_google_android_gms_fonts_certs
 )
 
-/** Kiln's sans. Replaces Inter, which the pre-Kiln theme used. */
+/** Kiln's sans. */
 private val InstrumentSans = FontFamily(
     GoogleFontFont(GoogleFont("Instrument Sans"), googleFontProvider, FontWeight.Normal),
     GoogleFontFont(GoogleFont("Instrument Sans"), googleFontProvider, FontWeight.Medium),

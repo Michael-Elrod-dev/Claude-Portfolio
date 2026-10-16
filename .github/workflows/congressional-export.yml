@@ -3,10 +3,7 @@ name: Congressional export
 # Feeds the trading bot's CongressionalSource. Ingests new House/Senate trade
 # disclosures into a cached SQLite database (congressional/), then writes a
 # 14-day JSON snapshot to S3 for the bot's Mon + Thu 13:00 UTC runs.
-#
-# This replaced Trade-Parser's identical workflow when that project (and the
-# congress-trades.com site it served) was retired. The snapshot is byte-for-
-# byte what the old pipeline produced — see congressional/README.md.
+# See congressional/README.md.
 #
 # ── STAGING vs PRODUCTION ───────────────────────────────────────────────────
 # EXPORT_TARGET below is the single switch.
@@ -17,14 +14,12 @@ name: Congressional export
 #               S3 seed after every run so a lost cache can never flood the
 #               bot's window. Requires the cutover IAM policy.
 # Cutover = flip EXPORT_TARGET, uncomment `schedule`, widen the IAM policy.
-# Steps are in congressional/README.md.
 #
 # ── WHY 23:17 UTC THE EVENING BEFORE (not 08:00 the same morning) ───────────
-# GitHub delays scheduled runs under load. The old "08:00" job started 4.5 to
-# 10.7 hours late and finished AFTER the bot read the file on 12 of its last
-# 15 runs (Aug 27 → Oct 15, 2026), so the bot mostly read the previous export.
-# Sun/Wed 23:17 UTC is ~13.7h ahead of the bot, and off the top of the hour,
-# where the delays are worst.
+# GitHub delays scheduled runs under load: an "08:00" schedule started 4.5 to
+# 10.7 hours late and finished AFTER the bot's 13:00 read on 12 of 15 runs
+# (Aug 27 → Oct 15, 2026). Sun/Wed 23:17 UTC is ~13.7h ahead of the bot, and
+# off the top of the hour, where the delays are worst.
 #
 # NOTE: GitHub disables cron workflows in public repos after 60 days without
 # repo activity. The bot treats a snapshot older than 8 days as a source error

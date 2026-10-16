@@ -12,7 +12,7 @@
  *                       for newest-first.
  *   TTL on `expiresAt` epoch seconds — items auto-purge after 90 days.
  *
- * Event kinds the app cares about (matches the handoff README):
+ * Event kinds the app cares about:
  *   - cron_start         — pipeline began (scheduled or forced)
  *   - briefing_complete  — assembler finished
  *   - run_complete       — full pipeline finished successfully

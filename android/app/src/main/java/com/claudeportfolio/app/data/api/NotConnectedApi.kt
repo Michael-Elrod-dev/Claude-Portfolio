@@ -14,9 +14,8 @@ import com.claudeportfolio.app.data.model.RunSummary
  * throws [NotConnectedException]; the screens' error path catches it and
  * renders a clear "Not connected" banner.
  *
- * This replaces the old MockApi fallback. The app should never silently
- * show fake data — when it can't reach the real backend, that should be
- * obvious in the UI.
+ * There is no mock fallback: when the app can't reach the real backend,
+ * that should be obvious in the UI.
  */
 class NotConnectedException : Exception(
     "Not connected. Open Settings → Connection to enter your API URL and bearer token."

@@ -172,8 +172,7 @@ class MainActivity : ComponentActivity() {
     private fun tabForIntent(intent: Intent?): Tab? {
         val kind = intent?.getStringExtra(PushConstants.EXTRA_KIND) ?: return null
         return when (kind) {
-            PushConstants.KIND_RUN_COMPLETE,
-            PushConstants.KIND_QUEUED_FOR_REVIEW -> Tab.LastRun
+            PushConstants.KIND_RUN_COMPLETE -> Tab.LastRun
             PushConstants.KIND_BRIEFING_ERROR,
             PushConstants.KIND_RUN_FAILED -> Tab.Settings
             else -> null

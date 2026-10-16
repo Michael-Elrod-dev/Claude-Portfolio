@@ -9,10 +9,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 
 /**
- * Three-state envelope every screen wraps its data in. Phase 4 mock data
- * makes Loading effectively instant and never produces Error, but the
- * envelope is in place so Phase 5 can plug in real network calls without
- * restructuring screens.
+ * Three-state envelope every screen wraps its data in.
  */
 sealed class UiState<out T> {
     data object Loading : UiState<Nothing>()

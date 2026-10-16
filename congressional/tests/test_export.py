@@ -1,11 +1,6 @@
 """The snapshot exporter: walk order, the window cutoff, the page cap, and the
 wire shape the trading bot depends on.
 
-Byte-for-byte equivalence with Trade-Parser's original exporter was proven
-during the migration (seed DB at four windows + a freshly ingested DB at
-three, identical sha256 in every case). These tests pin the behaviour that
-equivalence rested on, so it stays true after the old project is archived.
-
 Member resolution reaches the network (unitedstates.github.io), so the
 politician list is stubbed in the walk tests and checked separately via the
 model's serialization.

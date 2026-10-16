@@ -22,17 +22,13 @@ SRC_DIR="${REPO_ROOT}/data-gatherers"
 BUILD_DIR="${REPO_ROOT}/.build"
 ZIP_PATH="${BUILD_DIR}/lambda.zip"
 
-# Reject the retired mode flags loudly rather than ignoring them — a stale
-# `--dry-run` in someone's shell history must not look like it worked.
-for arg in "$@"; do
-  case "$arg" in
-    --live|--dry-run)
-      echo "✗ ${arg} no longer exists: the dry-run switch was removed with the paper account." >&2
-      echo "  Every run trades for real. Use 'bash infra/toggle.sh off' to stop runs." >&2
-      exit 1
-      ;;
-  esac
-done
+# Refuse any argument rather than ignore it — a flag like `--dry-run` must
+# not look like it worked.
+if [ "$#" -gt 0 ]; then
+  echo "✗ deploy.sh takes no arguments (got: $*)." >&2
+  echo "  Every run trades for real. Use 'bash infra/toggle.sh off' to stop runs." >&2
+  exit 1
+fi
 
 echo "=== Claude Portfolio Trader — Deploy ==="
 echo "Source: ${SRC_DIR}"
@@ -50,8 +46,8 @@ mkdir -p "${BUILD_DIR}"
 
 # We use a small Python helper instead of the `zip` CLI so the deploy works
 # on Windows / Git Bash environments that don't ship zip by default. The
-# helper applies the same exclude rules that the old shell `zip --exclude`
-# invocations used (dev clutter, ESLint packages, .git, etc.).
+# helper applies the exclude rules (dev clutter, ESLint packages, .git,
+# etc.).
 PYTHON_BIN="$(command -v python3 || command -v python)"
 if [ -z "${PYTHON_BIN}" ]; then
   echo "✗ Could not find python3/python on PATH — install Python or zip." >&2

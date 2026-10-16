@@ -28,9 +28,8 @@ data class Account(
     val lastEquity: Double,
     val dayPl: Double,
     val dayPlPct: Double,
-    // 7-day window. Added when the backend started serving it; nullable
-    // because _windowOrNull suppresses any window that degenerates into
-    // all-time on an account younger than the window.
+    // Window P/L. Nullable because _windowOrNull suppresses any window that
+    // degenerates into all-time on an account younger than the window.
     val weekPl: Double? = null,
     val weekPlPct: Double? = null,
     val monthPl: Double? = null,
@@ -107,8 +106,8 @@ data class RunSummary(
     val executor: ExecutorTally,
     val briefingErrors: List<BriefingError> = emptyList(),
     /**
-     * Real API embeds the full briefing JSON in the run record so the
-     * inspector is just a projection. Mock data leaves it null.
+     * The API embeds the full briefing JSON in the run record so the
+     * inspector is just a projection.
      */
     val briefing: JsonObject? = null,
 )
@@ -136,12 +135,6 @@ data class Recommendation(
     /**
      * Why a recommendation ended up with its status — the Alpaca error on a
      * failure, the pre-flight check on a skip.
-     *
-     * The pipeline has always archived this (`lambda/handler.js` builds it
-     * into every enriched rec) but the app had no field for it, so the one
-     * piece of information you actually want when a trade fails was being
-     * dropped on the floor. Every failure in the last month reads
-     * "HTTP 403: insufficient buying power".
      */
     val reason: String? = null,
 )
@@ -163,7 +156,6 @@ data class Sizing(
 data class ExecutorTally(
     val total: Int,
     val executed: Int,
-    val queuedForReview: Int = 0,
     val skipped: Int,
     val failed: Int,
     val alreadySubmitted: Int = 0,
@@ -186,13 +178,6 @@ data class RunListItem(
     val recCount: Int,
     val executor: ExecutorTally,
     val briefingErrors: List<BriefingError> = emptyList(),
-    // There used to be a `dayPlPct` here for the row's right-hand column,
-    // documented as "often null". It was ALWAYS null: `compactRow` in
-    // api/routes/runs.js never sends it and the archived run records never
-    // contained it, so the column rendered an em dash for every row ever
-    // shown. Removed rather than left as a field that invites someone to
-    // trust it — the History rows now show the executor tally, which is
-    // real data the endpoint actually returns.
 )
 
 // ── Briefing inspector ──────────────────────────────────────────────────
