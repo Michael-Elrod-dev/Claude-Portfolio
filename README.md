@@ -36,12 +36,12 @@ Sun + Wed 20:00 ET                       Mon + Thu 09:00 ET (before the 09:30 op
                                            Analyst (Claude API + web search)  ──►  recommendations
                                                   │
                                                   ▼
-                                           MemoUpdater (Claude, no tools)  ──►  new memo.json
-                                                  │
-                                                  ▼
                                            Executor  ──►  Alpaca live account
                                                   │       (always real orders — no dry-run;
                                                   │        market orders fill at the open)
+                                                  ▼
+                                           MemoUpdater (Claude, no tools)  ──►  new memo.json
+                                                  │       (from what was submitted, rejected, skipped)
                                                   ▼
                               /srv/claude-portfolio: runs/ · activity.jsonl · memo.json · devices.json
                                                   │
@@ -465,7 +465,7 @@ trade recommendations. This is the brain of the pipeline.
 | Max tokens | 64,000 | A ceiling, not a spend. ~20k observed output, so the headroom is free and stops a long run truncating mid-JSON |
 | Web search | `web_search_20260209`, `max_uses: 40` | No budget is stated to Claude: it researches as much as the decision warrants. 40 is a safety limit only, so a 09:00 run (~28s per search) always finishes before the 09:30 open. Usage is archived per run as `webSearchesUsed` |
 | Streaming | Yes (`stream()` + `finalMessage()`) | Required since `max_tokens > 16k` would risk SDK HTTP timeouts |
-| Refusal fallback | `fallbacks: [{model: "claude-opus-5"}]`, beta `server-side-fallback-2026-06-01` | If a safety classifier declines, the API re-runs the request on Opus 5 in the same call. Applies to the MemoUpdater too. If the whole chain declines, the run stops before the executor with a `RefusalError` — no orders. The serving model and a `fellBack` flag are archived in `analystMeta` (see `analyst/claudeRequest.js`) |
+| Refusal fallback | `fallbacks: [{model: "claude-opus-5"}]`, beta `server-side-fallback-2026-06-01` | If a safety classifier declines, the API re-runs the request on Opus 5 in the same call. If the whole chain declines on the Analyst, the run stops before the executor with a `RefusalError` — no orders. The MemoUpdater has the same fallback; it runs after the orders, so a decline there keeps the prior memo and the run reports `run_failed`. The serving model and a `fellBack` flag are archived in `analystMeta` (see `analyst/claudeRequest.js`) |
 | Prompt cache | System prompt as ephemeral text block | System prompt is stable across runs, so each run only pays full price for the user prompt + tool definitions |
 
 **Notes / considerations:**
@@ -533,9 +533,11 @@ force-run            present while the app has queued a forced run
 
 ### MemoUpdater (`analyst/MemoUpdater.js`)
 
-The second Claude call in each run. Takes the prior memo, this run's
-briefing, and the analyst's recommendations, and produces the new memo that
-gets written back to the store.
+The second Claude call in each run, made after the executor. Takes the
+prior memo, this run's briefing, the analyst's recommendations and what the
+executor did with each one (executed, failed, skipped, already submitted,
+with the broker's reason), and produces the new memo that gets written back
+to the store.
 
 **Output shape:**
 ```
@@ -553,8 +555,16 @@ gets written back to the store.
   tasks. Splitting them keeps each prompt focused. The MemoUpdater's
   system prompt is explicit that it is NOT the analyst and does not
   generate or second-guess trade decisions.
+- **It records what happened, not just what was decided.** A rejected or
+  skipped order doesn't open or close a thesis; the attempt and its reason
+  go into that ticker's `watchFor` so the Analyst can decide whether to
+  retry. Accepted orders are written down as submitted, since a pre-open
+  order fills at the open and the next run's briefing shows the fill.
+- **A failure after the orders is contained.** The prior memo stays, the
+  run is still archived, and it is reported as `run_failed` with
+  `ordersPlaced: true`.
 - **No web search.** The MemoUpdater is a pure transformation over known
-  inputs (prior memo + briefing + recommendations). No external research
+  inputs (prior memo + briefing + recommendations + order results). No external research
   is needed, which makes the call faster and cheaper than the Analyst's.
 - **Lower max_tokens (32k) than the Analyst's 64k.** Memo output is
   bounded by the schema, not open-ended; it runs 9–13k, so 32k is

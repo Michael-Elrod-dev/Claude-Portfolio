@@ -6,7 +6,7 @@
  * The user prompt is intentionally minimal — almost all of the structure
  * (rules, process, output schema) lives in the cached system prompt. The
  * user prompt is the volatile per-run payload, so it sits AFTER the cache
- * boundary and changes weekly without invalidating the prefix.
+ * boundary and changes every run without invalidating the prefix.
  */
 function buildUserPrompt(briefing) {
   const isoDate = (briefing.generatedAt || new Date().toISOString()).slice(0, 10);
@@ -23,7 +23,7 @@ function buildUserPrompt(briefing) {
 
   const briefingJson = JSON.stringify(briefing, null, 2);
 
-  return `Today is ${humanDate} (${isoDate}). This is your weekly briefing.
+  return `Today is ${humanDate} (${isoDate}). This is your briefing for this run.
 
 \`\`\`json
 ${briefingJson}

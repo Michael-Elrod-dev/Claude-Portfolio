@@ -16,11 +16,15 @@
  *      is either --force or a queued `force-run` request from the API.
  *   3. Assemble the briefing from all four data sources
  *   4. Call the Analyst (Claude + web search) for trade recommendations
- *   5. Call the MemoUpdater (Claude, no tools) to rewrite the memo
- *   6. Write the new memo
- *   7. Execute all recommendations against the live brokerage account
- *   8. Archive the run so the app can read it back through the API
- *   9. Send FCM push notifications — best-effort, never fails the run
+ *   5. Execute all recommendations against the live brokerage account
+ *   6. Call the MemoUpdater (Claude, no tools) with what was actually
+ *      submitted, rejected or skipped, and write the new memo
+ *   7. Archive the run so the app can read it back through the API
+ *   8. Send FCM push notifications — best-effort, never fails the run
+ *
+ * The memo is updated after the orders so it records what happened, not
+ * just what was decided. Once orders are out, a memo failure keeps the old
+ * memo, still archives the run, and reports run_failed.
  *
  * Activity events are appended throughout, so Settings → Recent activity
  * has something to show.
@@ -31,7 +35,6 @@
 
 const { loadSecrets } = require('./config');
 const store = require('./store');
-const { archiveRun, logActivity } = store;
 const { publish: fcmPublish } = require('./fcmPublisher');
 const AlpacaSource = require('../sources/AlpacaSource');
 const EarningsSource = require('../sources/EarningsSource');
@@ -42,36 +45,13 @@ const Analyst = require('../analyst/Analyst');
 const MemoUpdater = require('../analyst/MemoUpdater');
 const Executor = require('../executor/Executor');
 
-async function run({ force = false } = {}) {
-  const startedAt = Date.now();
-  const runDate = new Date().toISOString().slice(0, 10);
-  const forced = force;
-
-  const log = (msg) => console.log(`[${new Date().toISOString()}] ${msg}`);
-
-  log(`Claude Portfolio Trader starting (runDate=${runDate}, forced=${forced})`);
-  await logActivity('cron_start', { runDate, forced });
-
-  try {
-    // ── 1. Secrets ──────────────────────────────────────────────────────────
-    const secrets = loadSecrets();
-
-    // ── 2. On/off switch ────────────────────────────────────────────────────
-    if (!forced) {
-      if (!(await store.isActive())) {
-        log('Bot is INACTIVE (store `active` is not "true"). Nothing to do.');
-        return { status: 'inactive', runDate };
-      }
-      log('Bot is ACTIVE. Proceeding.');
-    } else {
-      log('Forced run: bypassing the on/off switch.');
-    }
-
-    // ── 3. Briefing ─────────────────────────────────────────────────────────
-    const memoBackend = store.memoBackend();
-    log(`Memo backend: ${memoBackend.describe()}`);
-
-    const assembler = new BriefingAssembler({
+/** The real collaborators. Tests pass fakes for the ones that reach the network. */
+const DEFAULT_DEPS = {
+  loadSecrets,
+  store,
+  fcmPublish,
+  makeAssembler: (secrets, memoBackend) =>
+    new BriefingAssembler({
       alpaca: new AlpacaSource({
         keyId: secrets.ALPACA_KEY_ID,
         secretKey: secrets.ALPACA_SECRET_KEY,
@@ -83,29 +63,67 @@ async function run({ force = false } = {}) {
         apiKey: secrets.FINNHUB_API_KEY,
         windowDays: 14,
       }),
-    });
+    }),
+  makeAnalyst: (secrets) => new Analyst({ apiKey: secrets.ANTHROPIC_API_KEY }),
+  makeMemoUpdater: (secrets) => new MemoUpdater({ apiKey: secrets.ANTHROPIC_API_KEY }),
+  makeExecutor: (secrets, runDate) =>
+    new Executor({
+      keyId: secrets.ALPACA_KEY_ID,
+      secretKey: secrets.ALPACA_SECRET_KEY,
+      runDate,
+    }),
+};
+
+async function run({ force = false, deps = {} } = {}) {
+  const d = { ...DEFAULT_DEPS, ...deps };
+  const { store: st } = d;
+  const startedAt = Date.now();
+  const runDate = new Date().toISOString().slice(0, 10);
+  const forced = force;
+  let ordersPlaced = false;
+
+  const log = (msg) => console.log(`[${new Date().toISOString()}] ${msg}`);
+
+  log(`Claude Portfolio Trader starting (runDate=${runDate}, forced=${forced})`);
+  await st.logActivity('cron_start', { runDate, forced });
+
+  try {
+    // ── 1. Secrets ──────────────────────────────────────────────────────────
+    const secrets = d.loadSecrets();
+
+    // ── 2. On/off switch ────────────────────────────────────────────────────
+    if (!forced) {
+      if (!(await st.isActive())) {
+        log('Bot is INACTIVE (store `active` is not "true"). Nothing to do.');
+        return { status: 'inactive', runDate };
+      }
+      log('Bot is ACTIVE. Proceeding.');
+    } else {
+      log('Forced run: bypassing the on/off switch.');
+    }
+
+    // ── 3. Briefing ─────────────────────────────────────────────────────────
+    const memoBackend = st.memoBackend();
+    log(`Memo backend: ${memoBackend.describe()}`);
 
     log('Assembling briefing...');
-    const briefing = await assembler.assemble();
+    const briefing = await d.makeAssembler(secrets, memoBackend).assemble();
     log(
       `Briefing ready: ${briefing.symbolsCovered.length} symbols, ` +
         `${briefing.errors.length} source error(s).`
     );
-    if (briefing.errors.length > 0) {
-      for (const e of briefing.errors) {
-        log(`  Source error [${e.source}]: ${e.message}`);
-        await logActivity('briefing_error', { source: e.source, message: e.message });
-      }
+    for (const e of briefing.errors) {
+      log(`  Source error [${e.source}]: ${e.message}`);
+      await st.logActivity('briefing_error', { source: e.source, message: e.message });
     }
-    await logActivity('briefing_complete', {
+    await st.logActivity('briefing_complete', {
       symbols: briefing.symbolsCovered.length,
       errors: briefing.errors.length,
     });
 
     // ── 4. Analyst ──────────────────────────────────────────────────────────
-    log('Calling Analyst (Claude + web search, may take 2–5 minutes)...');
-    const analyst = new Analyst({ apiKey: secrets.ANTHROPIC_API_KEY });
-    const analysis = await analyst.analyze(briefing);
+    log('Calling Analyst (Claude + web search)...');
+    const analysis = await d.makeAnalyst(secrets).analyze(briefing);
     log(
       `Analyst done (${analysis.meta.model}${analysis.meta.fellBack ? ', FELL BACK' : ''}). ` +
         `Stop: ${analysis.meta.stopReason}, ` +
@@ -113,41 +131,42 @@ async function run({ force = false } = {}) {
         `output tokens: ${analysis.meta.usage.outputTokens.toLocaleString()}`
     );
 
-    // ── 5. MemoUpdater ──────────────────────────────────────────────────────
-    log('Calling MemoUpdater...');
-    const updater = new MemoUpdater({ apiKey: secrets.ANTHROPIC_API_KEY });
-    const memoResult = await updater.update({
-      priorMemo: briefing.memo?.memo || {},
-      briefing,
-      recommendations: analysis.recommendations,
-    });
-    log(
-      `MemoUpdater done (${memoResult.meta.model}${memoResult.meta.fellBack ? ', FELL BACK' : ''}). ` +
-        `Stop: ${memoResult.meta.stopReason}, ` +
-        `output tokens: ${memoResult.meta.usage.outputTokens.toLocaleString()}`
-    );
-
-    // ── 6. Write memo ───────────────────────────────────────────────────────
-    log(`Writing new memo to ${memoBackend.describe()}...`);
-    await memoBackend.write(JSON.stringify(memoResult.memo, null, 2));
-    log('Memo written.');
-    await logActivity('memo_write', { lastUpdated: memoResult.memo?.lastUpdated || null });
-
-    // ── 7. Execute ──────────────────────────────────────────────────────────
+    // ── 5. Execute ──────────────────────────────────────────────────────────
     // Orders go to the live brokerage account unconditionally. This is REAL
     // money and there is no dry-run rail: if a run reaches this line, it
-    // trades. The active flag checked in step 2 is the only gate.
-    const executor = new Executor({
-      keyId: secrets.ALPACA_KEY_ID,
-      secretKey: secrets.ALPACA_SECRET_KEY,
-      runDate,
-    });
-
+    // trades. The switch checked in step 2 is the only gate.
     log('Running executor (live)...');
-    const execResult = await executor.execute(analysis.recommendations);
+    ordersPlaced = true;
+    const execResult = await d.makeExecutor(secrets, runDate).execute(analysis.recommendations);
     log(`Executor done: ${JSON.stringify(execResult.summary)}`);
 
-    // ── 8. Archive the run ──────────────────────────────────────────────────
+    // ── 6. MemoUpdater ──────────────────────────────────────────────────────
+    // Best-effort from here on: the orders are out, so a failure keeps the
+    // prior memo and the run is still archived below.
+    let memoResult = null;
+    let memoError = null;
+    try {
+      log('Calling MemoUpdater...');
+      memoResult = await d.makeMemoUpdater(secrets).update({
+        priorMemo: briefing.memo?.memo || {},
+        briefing,
+        recommendations: analysis.recommendations,
+        execution: execResult,
+      });
+      log(
+        `MemoUpdater done (${memoResult.meta.model}${memoResult.meta.fellBack ? ', FELL BACK' : ''}). ` +
+          `Stop: ${memoResult.meta.stopReason}, ` +
+          `output tokens: ${memoResult.meta.usage.outputTokens.toLocaleString()}`
+      );
+      await memoBackend.write(JSON.stringify(memoResult.memo, null, 2));
+      log(`Memo written to ${memoBackend.describe()}.`);
+      await st.logActivity('memo_write', { lastUpdated: memoResult.memo?.lastUpdated || null });
+    } catch (err) {
+      memoError = err;
+      log(`MemoUpdater FAILED after orders were placed; the prior memo stays: ${err.stack || err.message}`);
+    }
+
+    // ── 7. Archive the run ──────────────────────────────────────────────────
     const finishedAt = new Date();
     const durationSec = Math.round((finishedAt.getTime() - startedAt) / 1000);
 
@@ -168,7 +187,7 @@ async function run({ force = false } = {}) {
       analystMeta: {
         model: analysis.meta.model,
         fellBack: analysis.meta.fellBack ?? false,
-        memoModel: memoResult.meta.model,
+        memoModel: memoResult?.meta.model ?? null,
         stopReason: analysis.meta.stopReason,
         webSearchesUsed: analysis.meta.webSearchesUsed,
         inputTokens: analysis.meta.usage?.inputTokens ?? null,
@@ -181,16 +200,24 @@ async function run({ force = false } = {}) {
     };
 
     try {
-      await archiveRun(runRecord);
+      await st.archiveRun(runRecord);
       log('Run archived.');
     } catch (archiveErr) {
       // Non-fatal: the run already happened. Just log loudly.
       log(`Run archive FAILED (non-fatal): ${archiveErr.message}`);
     }
 
-    // ── 9. FCM push ─────────────────────────────────────────────────────────
+    if (memoError) {
+      // Reported as a failure (activity, push, exit code), with the orders noted.
+      throw Object.assign(
+        new Error(`orders placed, memo not updated: ${memoError.message}`),
+        { cause: memoError }
+      );
+    }
+
+    // ── 8. FCM push ─────────────────────────────────────────────────────────
     try {
-      const fcmResult = await fcmPublish('run_complete', {
+      const fcmResult = await d.fcmPublish('run_complete', {
         runDate,
         recCount: enrichedRecs.length,
         executed: execResult.summary?.executed ?? 0,
@@ -199,7 +226,7 @@ async function run({ force = false } = {}) {
       log(`FCM run_complete: ${JSON.stringify(fcmResult)}`);
 
       if (briefing.errors.length > 0) {
-        await fcmPublish('briefing_error', {
+        await d.fcmPublish('briefing_error', {
           runDate,
           errorCount: briefing.errors.length,
         });
@@ -220,7 +247,7 @@ async function run({ force = false } = {}) {
     };
 
     log('Run complete: ' + JSON.stringify(result.execution));
-    await logActivity('run_complete', {
+    await st.logActivity('run_complete', {
       runDate,
       durationSec,
       recCount: enrichedRecs.length,
@@ -231,13 +258,14 @@ async function run({ force = false } = {}) {
   } catch (err) {
     const durationSec = Math.round((Date.now() - startedAt) / 1000);
     log(`Pipeline FAILED after ${durationSec}s: ${err.stack || err.message}`);
-    await logActivity('run_failed', {
+    await st.logActivity('run_failed', {
       runDate,
       durationSec,
+      ordersPlaced,
       error: err.message,
     });
     try {
-      await fcmPublish('run_failed', { runDate, error: err.message.slice(0, 200) });
+      await d.fcmPublish('run_failed', { runDate, error: err.message.slice(0, 200) });
     } catch {
       /* swallow — failure inside failure handler is just noise */
     }

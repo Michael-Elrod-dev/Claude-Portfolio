@@ -30,7 +30,7 @@ const DEFAULT_EFFORT = 'xhigh';
  *     an error and Claude answers with what it has. Usage is archived as
  *     analystMeta.webSearchesUsed (10-13 under the old stated budget of 15).
  *   - prompt cache: system prompt is wrapped as an ephemeral text block,
- *     so weekly runs only pay full price for the user prompt and tools
+ *     so each run only pays full price for the user prompt and tools
  *   - refusal fallback: if a safety classifier declines, the API re-runs
  *     the request on claude-opus-5 within the same call (see
  *     claudeRequest.js). Goes through client.beta.messages for that reason.

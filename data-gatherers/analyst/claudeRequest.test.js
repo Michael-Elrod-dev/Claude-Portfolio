@@ -67,7 +67,8 @@ function memoUpdater(message) {
   return m;
 }
 
-const runMemo = (m) => m.update({ priorMemo: { watchlist: [] }, briefing: BRIEFING, recommendations: RECS });
+const EXECUTION = { summary: { total: 0, executed: 0, skipped: 0, failed: 0, alreadySubmitted: 0 }, results: [] };
+const runMemo = (m) => m.update({ priorMemo: { watchlist: [] }, briefing: BRIEFING, recommendations: RECS, execution: EXECUTION });
 
 // ── The request ─────────────────────────────────────────────────────────
 

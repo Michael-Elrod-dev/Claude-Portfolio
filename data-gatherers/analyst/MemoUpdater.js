@@ -11,9 +11,9 @@ const DEFAULT_MAX_TOKENS = 32_000;
 const DEFAULT_EFFORT = 'high';
 
 /**
- * Second Claude call in the weekly pipeline. Takes the prior memo, this
- * week's briefing, and this week's recommendations, and produces the new
- * memo.
+ * Second Claude call in each run, made after the executor. Takes the prior
+ * memo, this run's briefing, the Analyst's recommendations and what the
+ * executor did with each one, and produces the new memo.
  *
  * Differences from Analyst:
  *   - No web search tool. Memo updates are a pure transformation over
@@ -44,12 +44,13 @@ class MemoUpdater {
     this.effort = effort;
   }
 
-  async update({ priorMemo, briefing, recommendations }) {
+  async update({ priorMemo, briefing, recommendations, execution }) {
     if (!priorMemo) throw new Error('priorMemo is required');
     if (!briefing) throw new Error('briefing is required');
     if (!recommendations) throw new Error('recommendations is required');
+    if (!execution) throw new Error('execution is required');
 
-    const userPrompt = buildUserPrompt({ priorMemo, briefing, recommendations });
+    const userPrompt = buildUserPrompt({ priorMemo, briefing, recommendations, execution });
 
     const stream = this.client.beta.messages.stream(withRefusalFallback({
       model: this.model,

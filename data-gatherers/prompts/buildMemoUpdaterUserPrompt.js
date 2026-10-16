@@ -3,15 +3,29 @@
 /**
  * Renders the per-run user prompt for the MemoUpdater.
  *
- * The MemoUpdater needs three pieces of context:
+ * The MemoUpdater needs four pieces of context:
  *   - the prior memo (so it can preserve continuity)
  *   - the briefing (for portfolio state and broader context)
- *   - this week's recommendations (the decisions to reflect in the memo)
+ *   - this run's recommendations (the decisions)
+ *   - what the executor did with each one (submitted, rejected or skipped)
  *
  * Volatile content sits in the user prompt so the cached system prompt
- * stays valid week to week.
+ * stays valid from run to run.
  */
-function buildMemoUpdaterUserPrompt({ priorMemo, briefing, recommendations }) {
+
+/** One line per order the executor handled: what was asked and what happened. */
+function orderOutcomes(execution) {
+  return (execution.results || []).map((r) => ({
+    action: r.recommendation?.action ?? null,
+    ticker: r.recommendation?.ticker ?? null,
+    amount: r.recommendation?.amount ?? null,
+    status: r.status,
+    orderId: r.orderId || null,
+    reason: r.reason || null,
+  }));
+}
+
+function buildMemoUpdaterUserPrompt({ priorMemo, briefing, recommendations, execution }) {
   const date = (briefing.generatedAt || new Date().toISOString()).slice(0, 10);
 
   return `Update the memo for the run dated ${date}.
@@ -22,16 +36,24 @@ function buildMemoUpdaterUserPrompt({ priorMemo, briefing, recommendations }) {
 ${JSON.stringify(priorMemo, null, 2)}
 \`\`\`
 
-# This week's briefing
+# This run's briefing
 
 \`\`\`json
 ${JSON.stringify(briefing, null, 2)}
 \`\`\`
 
-# This week's recommendations
+# This run's recommendations
 
 \`\`\`json
 ${JSON.stringify(recommendations, null, 2)}
+\`\`\`
+
+# What the executor did
+
+"executed" means the broker accepted the order, not that it has filled. On a scheduled run the orders go in before the open and fill at it.
+
+\`\`\`json
+${JSON.stringify({ summary: execution.summary, orders: orderOutcomes(execution) }, null, 2)}
 \`\`\`
 
 Produce the new memo as a single JSON object matching the schema in your instructions.`;

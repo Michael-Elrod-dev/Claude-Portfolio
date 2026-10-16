@@ -24,9 +24,10 @@ from congressional.models import TradeRecord
 
 logger = logging.getLogger(__name__)
 
-# Claude Sonnet 5 — strong table-vision at a price that's negligible for the
-# ~70-90 scanned filings/year this handles (a few $ one-time, pennies ongoing).
-OCR_MODEL = "claude-sonnet-5"
+# Claude Sonnet 5.5, the current Sonnet — strong table-vision at a price that's
+# negligible for the ~70-90 scanned filings/year this handles. Effort is left at
+# the API default (high): accuracy matters more than cost at this volume.
+OCR_MODEL = "claude-sonnet-5-5"
 RENDER_DPI = 150  # plenty for these forms; higher just costs more tokens
 MAX_PAGES = 60  # brokerage-attached PTRs (e.g. Khanna) run 40-56 pages
 MAX_TOKENS = 16000  # headroom per batch so a dense reply doesn't truncate
