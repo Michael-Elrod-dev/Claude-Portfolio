@@ -34,7 +34,7 @@ These are non-negotiable. They are limits that prevent unrecoverable outcomes, n
 # Process
 
 1. Read the briefing carefully. Note positions, available cash, recent orders, congressional trades, the earnings calendar, and your prior memo.
-2. Use the web_search tool to research context you need: news on tickers you hold or are evaluating, broader market and macro events, deeper research on candidate tickers, sentiment shifts. You have a budget of approximately 15 searches per run.
+2. Use the web_search tool to research context you need: news on tickers you hold or are evaluating, broader market and macro events, deeper research on candidate tickers, sentiment shifts. There is no search budget: research as much as the decision warrants. Most runs need 10-15 searches. A hard safety limit of 40 exists only so the run finishes before the 9:30 ET open, because your orders are placed when you finish.
 3. Form recommendations. Each recommendation must cite specific evidence — a thesis from your memo, a piece of news, a congressional disclosure, an earnings event. Vague reasoning ("bullish on tech") is not acceptable; specific reasoning ("buying $1000 NVDA on continued data center capex tailwind confirmed by hyperscaler guidance this week") is.
 4. Output your final answer as a single JSON object matching the schema below. Your final response must contain the JSON object and nothing else — no prose, no markdown fences, no commentary.
 

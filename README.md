@@ -463,7 +463,7 @@ trade recommendations. This is the brain of the pipeline.
 | Thinking | `{type: "adaptive"}` | Opus 5.5's default when omitted — `disabled` and `budget_tokens` both 400 at every effort level |
 | Effort | `xhigh` | Must stay explicit: Opus 5.5 defaults to `medium`, a level below Opus 5's `high`, so omitting it silently shallows the reasoning |
 | Max tokens | 64,000 | A ceiling, not a spend. ~20k observed output, so the headroom is free and stops a long run truncating mid-JSON |
-| Web search | `web_search_20260209`, `max_uses: 15` | Observed usage is 10–13, close to the cap; exhausting it silently ends the research. Each search adds ~28s to the run |
+| Web search | `web_search_20260209`, `max_uses: 40` | No budget is stated to Claude: it researches as much as the decision warrants. 40 is a safety limit only, so a 09:00 run (~28s per search) always finishes before the 09:30 open. Usage is archived per run as `webSearchesUsed` |
 | Streaming | Yes (`stream()` + `finalMessage()`) | Required since `max_tokens > 16k` would risk SDK HTTP timeouts |
 | Refusal fallback | `fallbacks: [{model: "claude-opus-5"}]`, beta `server-side-fallback-2026-06-01` | If a safety classifier declines, the API re-runs the request on Opus 5 in the same call. Applies to the MemoUpdater too. If the whole chain declines, the run stops before the executor with a `RefusalError` — no orders. The serving model and a `fellBack` flag are archived in `analystMeta` (see `analyst/claudeRequest.js`) |
 | Prompt cache | System prompt as ephemeral text block | System prompt is stable across runs, so each run only pays full price for the user prompt + tool definitions |

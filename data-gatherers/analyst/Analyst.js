@@ -8,7 +8,7 @@ const { withRefusalFallback, assertNotRefused, servedBy } = require('./claudeReq
 
 const DEFAULT_MODEL = 'claude-opus-5-5';
 const DEFAULT_MAX_TOKENS = 64_000;
-const DEFAULT_MAX_WEB_SEARCHES = 15;
+const DEFAULT_MAX_WEB_SEARCHES = 40;
 const DEFAULT_EFFORT = 'xhigh';
 
 /**
@@ -23,9 +23,12 @@ const DEFAULT_EFFORT = 'xhigh';
  *   - effort: xhigh — and it MUST stay explicit. Opus 5.5 defaults to
  *     `medium`, a level below Opus 5's `high`, so dropping this line
  *     would quietly shallow out the reasoning rather than erroring.
- *   - web_search: 15-call budget per run. Observed usage is 10-13, close
- *     to the cap, and exhausting it ends the research early with no error.
- *     Searches are the main driver of wall-clock time (~28s each).
+ *   - web_search: no budget is given to Claude; the system prompt tells it
+ *     to research as much as the decision warrants. max_uses 40 is only a
+ *     safety limit: searches take ~28s each, and 40 keeps a run that starts
+ *     at 09:00 ET finishing before the 09:30 open. Past it the tool returns
+ *     an error and Claude answers with what it has. Usage is archived as
+ *     analystMeta.webSearchesUsed (10-13 under the old stated budget of 15).
  *   - prompt cache: system prompt is wrapped as an ephemeral text block,
  *     so weekly runs only pay full price for the user prompt and tools
  *   - refusal fallback: if a safety classifier declines, the API re-runs
