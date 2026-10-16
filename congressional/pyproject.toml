@@ -1,0 +1,64 @@
+[project]
+name = "congressional"
+version = "1.0.0"
+description = "House + Senate trade-disclosure pipeline feeding the Claude-Portfolio trading bot"
+requires-python = ">=3.12"
+# Only what the ingest -> enrich -> export pipeline needs. Trade-Parser's
+# website dependencies (fastapi, uvicorn, stripe, bcrypt, pyjwt, sentry, mcp,
+# alembic, psycopg2, alpaca-py) were dropped with the site.
+dependencies = [
+    "anthropic>=0.115.1",   # Claude vision OCR for scanned/paper PTRs
+    "beautifulsoup4>=4.12", # Senate e-filing HTML
+    "httpx>=0.27",
+    "lxml>=5.0",
+    "pdfplumber>=0.11",     # House PTR text extraction
+    "pymupdf>=1.28.0",      # PTR page rendering for OCR
+    "pydantic>=2.7",        # snapshot row models (schema.py)
+    "python-dotenv>=1.0",
+    "sqlalchemy>=2.0",
+    "typer>=0.26.8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.13",
+]
+
+[project.scripts]
+congressional = "congressional.cli:app"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src", "tests"]
+
+[tool.ruff.lint]
+# E/F = pyflakes+pycodestyle, I = import sort, B = bugbear, UP = pyupgrade,
+# S = flake8-bandit (security), C4 = comprehensions.
+select = ["E", "F", "I", "B", "UP", "S", "C4"]
+ignore = [
+    "E501",  # line length is owned by the formatter
+    "B008",  # typer Option() in argument defaults is idiomatic
+    "E702",  # deliberate compact "a; b" assignment pairs in the query builders
+    # S608 (hardcoded-SQL): every user-supplied value is a bound parameter and
+    # only whitelisted, code-defined fragments are interpolated (verified in
+    # Trade-Parser 2026-06-25; the query code is carried over unchanged).
+    "S608",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S"]
+# cli.py calls load_dotenv() before importing modules that read env at import.
+"src/congressional/cli.py" = ["E402"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/congressional"]

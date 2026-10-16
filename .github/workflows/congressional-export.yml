@@ -1,0 +1,155 @@
+name: Congressional export
+
+# Feeds the trading bot's CongressionalSource. Ingests new House/Senate trade
+# disclosures into a cached SQLite database (congressional/), then writes a
+# 14-day JSON snapshot to S3 for the bot's Mon + Thu 13:00 UTC runs.
+#
+# This replaced Trade-Parser's identical workflow when that project (and the
+# congress-trades.com site it served) was retired. The snapshot is byte-for-
+# byte what the old pipeline produced — see congressional/README.md.
+#
+# ── STAGING vs PRODUCTION ───────────────────────────────────────────────────
+# EXPORT_TARGET below is the single switch.
+#   staging     manual runs only; writes congressional.staging.json; no OCR;
+#               never touches the seed; its own DB cache. The AWS role is
+#               scoped to the staging key, so it cannot write the bot's file.
+#   production  writes congressional.json; OCR on warm runs; refreshes the
+#               S3 seed after every run so a lost cache can never flood the
+#               bot's window. Requires the cutover IAM policy.
+# Cutover = flip EXPORT_TARGET, uncomment `schedule`, widen the IAM policy.
+# Steps are in congressional/README.md.
+#
+# ── WHY 23:17 UTC THE EVENING BEFORE (not 08:00 the same morning) ───────────
+# GitHub delays scheduled runs under load. The old "08:00" job started 4.5 to
+# 10.7 hours late and finished AFTER the bot read the file on 12 of its last
+# 15 runs (Aug 27 → Oct 15, 2026), so the bot mostly read the previous export.
+# Sun/Wed 23:17 UTC is ~13.7h ahead of the bot, and off the top of the hour,
+# where the delays are worst.
+#
+# NOTE: GitHub disables cron workflows in public repos after 60 days without
+# repo activity. The bot treats a snapshot older than 8 days as a source error
+# (a briefing_error push) — that is the alarm; re-enable from the Actions tab.
+
+on:
+  workflow_dispatch: {}
+  # schedule:                   # enabled at cutover
+  #   - cron: "17 23 * * 0,3"   # Sun + Wed 23:17 UTC — the evening before the bot's runs
+
+permissions:
+  contents: read
+  id-token: write # OIDC → scoped AWS role; no long-lived AWS keys
+
+concurrency:
+  group: congressional-export
+  cancel-in-progress: false
+
+env:
+  EXPORT_TARGET: staging
+  # Relative to congressional/ (the working directory below).
+  DATABASE_URL: sqlite:///data/congressional.db
+
+jobs:
+  export:
+    name: Ingest new filings → JSON snapshot → S3
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        working-directory: congressional
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: "0.11.24"
+          enable-cache: true
+          cache-dependency-glob: congressional/uv.lock
+
+      - name: Sync (locked)
+        run: uv sync --frozen --python 3.12
+
+      - name: Resolve target
+        id: target
+        run: |
+          if [ "$EXPORT_TARGET" = production ]; then
+            echo "snapshot_key=congressional.json" >> "$GITHUB_OUTPUT"
+          elif [ "$EXPORT_TARGET" = staging ]; then
+            echo "snapshot_key=congressional.staging.json" >> "$GITHUB_OUTPUT"
+          else
+            echo "EXPORT_TARGET must be staging or production, got '$EXPORT_TARGET'" >&2; exit 1
+          fi
+
+      # The DB persists between runs via the Actions cache, so each run ingests
+      # only the delta. Keyed per target so a staging cache can never be
+      # restored by a production run. Entries are immutable — save under a
+      # fresh key, restore the newest by prefix.
+      - name: Restore database cache
+        id: db-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            congressional/data/congressional.db
+            congressional/data/poll_state.json
+          key: congressional-db-${{ env.EXPORT_TARGET }}-${{ github.run_id }}
+          restore-keys: |
+            congressional-db-${{ env.EXPORT_TARGET }}-
+
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_EXPORT_ROLE_ARN }}
+          aws-region: us-east-1
+
+      # Cold start: pull the seed. Never bootstrap an empty DB with `poll` —
+      # polling stamps everything it discovers as first-seen-now, which would
+      # flood the bot's filed-this-week window with every filing it didn't
+      # already have. Production refreshes the seed after every run, so a
+      # cold start only ever re-discovers a few days of filings.
+      - name: Pull seed database (cold start only)
+        if: steps.db-cache.outputs.cache-matched-key == ''
+        run: |
+          mkdir -p data
+          aws s3 cp "s3://${{ secrets.SNAPSHOT_BUCKET }}/congressional-seed.db" data/congressional.db
+
+      - name: Poll for new filings (warm production run — OCR on)
+        if: env.EXPORT_TARGET == 'production' && steps.db-cache.outputs.cache-matched-key != ''
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: uv run congressional poll
+
+      # Cold runs and every staging run parse without OCR, so neither a lost
+      # cache nor a test run can vision-OCR a backlog in one bill. A later warm
+      # production run's drain step picks up whatever was flagged.
+      - name: Poll for new filings (no OCR)
+        if: env.EXPORT_TARGET != 'production' || steps.db-cache.outputs.cache-matched-key == ''
+        run: uv run congressional poll
+
+      - name: OCR backlog drain (warm production runs only)
+        if: env.EXPORT_TARGET == 'production' && steps.db-cache.outputs.cache-matched-key != ''
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          uv run congressional house parse-ptrs "$(date -u +%Y)" --retry-scanned
+          uv run congressional senate parse-ptrs "$(date -u +%Y)" --retry-paper
+          uv run congressional rebuild-read-model
+
+      - name: Export snapshot
+        run: uv run congressional export --window-days 14 --out congressional.json
+
+      - name: Upload snapshot to S3
+        run: aws s3 cp congressional.json "s3://${{ secrets.SNAPSHOT_BUCKET }}/${{ steps.target.outputs.snapshot_key }}"
+
+      # Keeps the cold-start seed current, so losing the Actions cache costs a
+      # few days of re-discovery instead of months.
+      - name: Refresh seed database (production only)
+        if: env.EXPORT_TARGET == 'production'
+        run: aws s3 cp data/congressional.db "s3://${{ secrets.SNAPSHOT_BUCKET }}/congressional-seed.db"
+
+      - name: Save database cache
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            congressional/data/congressional.db
+            congressional/data/poll_state.json
+          key: congressional-db-${{ env.EXPORT_TARGET }}-${{ github.run_id }}
