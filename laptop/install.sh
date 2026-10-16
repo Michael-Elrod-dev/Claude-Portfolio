@@ -64,10 +64,12 @@ UNITS="$APP-api.service $APP-bot.service $APP-bot.timer $APP-force.path
        $APP-congressional.service $APP-congressional.timer
        $APP-backup.service $APP-backup.timer"
 reload=0
+retrigger=""
 for unit in $UNITS; do
   if changed "$U/$unit" "/etc/systemd/system/$unit"; then
     install -m 0644 "$U/$unit" "/etc/systemd/system/$unit"
     reload=1
+    case "$unit" in *.timer|*.path) retrigger="$retrigger $unit" ;; esac
   fi
 done
 [ "$reload" = 1 ] && systemctl daemon-reload
@@ -87,6 +89,11 @@ fi
 systemctl enable -q "$APP-api.service"
 systemctl restart "$APP-api.service"
 systemctl enable -q --now "$APP-bot.timer" "$APP-force.path" "$APP-congressional.timer"
+# A changed schedule only takes effect once its timer is restarted. Never restart a
+# .service here: the bot must not be started by a deploy.
+for unit in $retrigger; do
+  if systemctl is-enabled --quiet "$unit"; then systemctl restart "$unit"; fi
+done
 if [ -f "$ETC/aws.env" ]; then
   systemctl enable -q --now "$APP-backup.timer"
 else

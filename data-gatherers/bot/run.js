@@ -3,31 +3,34 @@
 
 /**
  * The Claude Portfolio Trader. Run by claude-portfolio-bot.service on the
- * laptop: its timer fires Mon + Thu at 09:00 America/New_York (before the
- * 09:30 open, so orders fill at the open), and claude-portfolio-force.path
- * starts it when the app asks for a forced run.
+ * laptop: its timer fires Mon, Tue and Thu at 09:00 America/New_York, and
+ * claude-portfolio-force.path starts it when the app asks for a forced run.
  *
- *   node bot/run.js           scheduled run: exits early if the switch is off
- *   node bot/run.js --force   bypass the switch
+ *   node bot/run.js           scheduled run (see the schedule below)
+ *   node bot/run.js --force   bypass the schedule and the on/off switch
+ *
+ * Schedule (market.js scheduledRunDecision): Mon and Thu when the market is
+ * open; Tue only as a make-up when Monday was a market holiday. A Thursday
+ * holiday is not made up. The decision is made before any Claude call, so a
+ * skipped day costs nothing.
  *
  * Full pipeline:
  *   1. Load API keys from the environment
- *   2. Check the on/off switch (store `active`) unless forced. A forced run
- *      is either --force or a queued `force-run` request from the API.
+ *   2. Scheduled runs: check the market calendar and the on/off switch
  *   3. Assemble the briefing from all four data sources
  *   4. Call the Analyst (Claude + web search) for trade recommendations
- *   5. Execute all recommendations against the live brokerage account
- *   6. Call the MemoUpdater (Claude, no tools) with what was actually
- *      submitted, rejected or skipped, and write the new memo
+ *   5. Execute: sells first; buys wait for them to fill, then are sized to
+ *      the cash actually available (executor/Executor.js)
+ *   6. Call the MemoUpdater (Claude, no tools) with what was submitted,
+ *      filled, scaled, rejected or skipped, and write the new memo
  *   7. Archive the run so the app can read it back through the API
  *   8. Send FCM push notifications — best-effort, never fails the run
  *
- * The memo is updated after the orders so it records what happened, not
- * just what was decided. Once orders are out, a memo failure keeps the old
- * memo, still archives the run, and reports run_failed.
- *
- * Activity events are appended throughout, so Settings → Recent activity
- * has something to show.
+ * While the executor waits for sells, a partial run record is archived, and
+ * a SIGTERM (systemd timeout, reboot) archives what is known before exiting.
+ * Once orders are out, a memo failure keeps the old memo, still archives the
+ * run, and reports run_failed. A `running` marker in the store lets the API
+ * refuse a forced run while this one is in progress.
  *
  * There is no dry-run mode. Every run that gets past the switch places real
  * orders on the live brokerage account.
@@ -36,6 +39,8 @@
 const { loadSecrets } = require('./config');
 const store = require('./store');
 const { publish: fcmPublish } = require('./fcmPublisher');
+const { createLiveClient } = require('../alpacaClient');
+const { etDate, scheduledRunDecision } = require('../market');
 const AlpacaSource = require('../sources/AlpacaSource');
 const EarningsSource = require('../sources/EarningsSource');
 const CongressionalSource = require('../sources/CongressionalSource');
@@ -45,11 +50,22 @@ const Analyst = require('../analyst/Analyst');
 const MemoUpdater = require('../analyst/MemoUpdater');
 const Executor = require('../executor/Executor');
 
+// The unit's TimeoutStartSec is 90 min. The executor must hand back early
+// enough for the memo update and the archive.
+const RUN_BUDGET_MS = 85 * 60_000;
+const MEMO_RESERVE_MS = 12 * 60_000;
+
 /** The real collaborators. Tests pass fakes for the ones that reach the network. */
 const DEFAULT_DEPS = {
   loadSecrets,
   store,
   fcmPublish,
+  now: () => Date.now(),
+  decideSchedule: (secrets, nowMs) =>
+    scheduledRunDecision(
+      createLiveClient({ keyId: secrets.ALPACA_KEY_ID, secretKey: secrets.ALPACA_SECRET_KEY }),
+      nowMs
+    ),
   makeAssembler: (secrets, memoBackend) =>
     new BriefingAssembler({
       alpaca: new AlpacaSource({
@@ -66,32 +82,59 @@ const DEFAULT_DEPS = {
     }),
   makeAnalyst: (secrets) => new Analyst({ apiKey: secrets.ANTHROPIC_API_KEY }),
   makeMemoUpdater: (secrets) => new MemoUpdater({ apiKey: secrets.ANTHROPIC_API_KEY }),
-  makeExecutor: (secrets, runDate) =>
+  makeExecutor: (secrets, runDate, opts) =>
     new Executor({
       keyId: secrets.ALPACA_KEY_ID,
       secretKey: secrets.ALPACA_SECRET_KEY,
       runDate,
+      ...opts,
     }),
 };
+
+/** One record per recommendation: the recommendation plus everything the executor learned. */
+function enrich(results) {
+  return (results || []).map(({ recommendation, ...outcome }) => ({
+    ...(recommendation || {}),
+    ...outcome,
+    orderId: outcome.orderId || null,
+    reason: outcome.reason || null,
+  }));
+}
 
 async function run({ force = false, deps = {} } = {}) {
   const d = { ...DEFAULT_DEPS, ...deps };
   const { store: st } = d;
-  const startedAt = Date.now();
-  const runDate = new Date().toISOString().slice(0, 10);
+  const startedAt = d.now();
+  const runDate = etDate(startedAt);
   const forced = force;
   let ordersPlaced = false;
+  let partialRecord = null;
+  let onSigterm = null;
 
   const log = (msg) => console.log(`[${new Date().toISOString()}] ${msg}`);
+  const secondsSince = () => Math.round((d.now() - startedAt) / 1000);
 
-  log(`Claude Portfolio Trader starting (runDate=${runDate}, forced=${forced})`);
-  await st.logActivity('cron_start', { runDate, forced });
-
+  st.markRunStarted();
   try {
     // ── 1. Secrets ──────────────────────────────────────────────────────────
     const secrets = d.loadSecrets();
 
-    // ── 2. On/off switch ────────────────────────────────────────────────────
+    // ── 2. Schedule and on/off switch (scheduled runs only) ─────────────────
+    if (!forced) {
+      const decision = await d.decideSchedule(secrets, startedAt);
+      if (!decision.run) {
+        log(`Not running today: ${decision.reason}.`);
+        if (!decision.quiet) {
+          await st.logActivity('run_skipped', { runDate, text: `Run skipped: ${decision.reason}` });
+        }
+        return { status: 'skipped', runDate, reason: decision.reason };
+      }
+      log(`Schedule: ${decision.reason}.`);
+    }
+
+    log(`Claude Portfolio Trader starting (runDate=${runDate}, forced=${forced})`);
+    await st.logActivity('cron_start', { runDate, forced });
+
     if (!forced) {
       if (!(await st.isActive())) {
         log('Bot is INACTIVE (store `active` is not "true"). Nothing to do.');
@@ -99,7 +142,7 @@ async function run({ force = false, deps = {} } = {}) {
       }
       log('Bot is ACTIVE. Proceeding.');
     } else {
-      log('Forced run: bypassing the on/off switch.');
+      log('Forced run: bypassing the schedule and the on/off switch.');
     }
 
     // ── 3. Briefing ─────────────────────────────────────────────────────────
@@ -131,14 +174,77 @@ async function run({ force = false, deps = {} } = {}) {
         `output tokens: ${analysis.meta.usage.outputTokens.toLocaleString()}`
     );
 
+    const analystMeta = (memoModel) => ({
+      model: analysis.meta.model,
+      fellBack: analysis.meta.fellBack ?? false,
+      memoModel,
+      stopReason: analysis.meta.stopReason,
+      webSearchesUsed: analysis.meta.webSearchesUsed,
+      inputTokens: analysis.meta.usage?.inputTokens ?? null,
+      outputTokens: analysis.meta.usage?.outputTokens ?? null,
+    });
+    const recordFrom = (results, extra) => ({
+      runDate,
+      timestamp: new Date(d.now()).toISOString(),
+      durationSec: secondsSince(),
+      forced,
+      summary: analysis.recommendations?.summary || null,
+      briefingErrors: briefing.errors,
+      briefing,
+      recommendations: enrich(results),
+      ...extra,
+    });
+
+    // If systemd stops the run while orders are out, archive what is known.
+    onSigterm = async () => {
+      log('SIGTERM while orders were out: archiving what is known.');
+      try {
+        if (partialRecord) {
+          await st.archiveRun({ ...partialRecord, status: 'interrupted', durationSec: secondsSince() });
+        }
+        await st.logActivity('run_failed', {
+          runDate,
+          ordersPlaced,
+          error: 'interrupted (SIGTERM) before the run finished',
+          text: 'Run interrupted after orders were placed; see the run record',
+        });
+      } finally {
+        process.exit(1);
+      }
+    };
+    process.once('SIGTERM', onSigterm);
+
     // ── 5. Execute ──────────────────────────────────────────────────────────
     // Orders go to the live brokerage account unconditionally. This is REAL
     // money and there is no dry-run rail: if a run reaches this line, it
-    // trades. The switch checked in step 2 is the only gate.
+    // trades.
     log('Running executor (live)...');
     ordersPlaced = true;
-    const execResult = await d.makeExecutor(secrets, runDate).execute(analysis.recommendations);
+    const onProgress = async ({ sellResults, deferredBuys, waitUntil }) => {
+      const until = new Date(waitUntil).toISOString();
+      partialRecord = recordFrom(
+        [
+          ...sellResults,
+          ...deferredBuys.map((rec) => ({ recommendation: rec, status: 'pending', reason: `waiting for sells to fill (until ${until})` })),
+        ],
+        {
+          status: 'in_progress',
+          analystMeta: analystMeta(null),
+          executor: { total: sellResults.length + deferredBuys.length, executed: sellResults.filter((r) => r.status === 'executed').length, skipped: 0, failed: 0, alreadySubmitted: 0 },
+        }
+      );
+      await st.archiveRun(partialRecord);
+      await st.logActivity('orders_waiting', {
+        runDate,
+        text: `Sells submitted; ${deferredBuys.length} buy(s) wait for them to fill (until ${until})`,
+      });
+      log(`Sells submitted; ${deferredBuys.length} buy(s) waiting for fills until ${until}. Partial record archived.`);
+    };
+    const execResult = await d
+      .makeExecutor(secrets, runDate, { deadlineAt: startedAt + RUN_BUDGET_MS - MEMO_RESERVE_MS, onProgress })
+      .execute(analysis.recommendations);
     log(`Executor done: ${JSON.stringify(execResult.summary)}`);
+    for (const notice of execResult.notices || []) log(`  Executor notice: ${notice}`);
 
     // ── 6. MemoUpdater ──────────────────────────────────────────────────────
     // Best-effort from here on: the orders are out, so a failure keeps the
@@ -167,40 +273,16 @@ async function run({ force = false, deps = {} } = {}) {
     }
 
     // ── 7. Archive the run ──────────────────────────────────────────────────
-    const finishedAt = new Date();
-    const durationSec = Math.round((finishedAt.getTime() - startedAt) / 1000);
-
-    const enrichedRecs = (execResult.results || []).map((r) => ({
-      ...(r.recommendation || {}),
-      status: r.status,
-      orderId: r.orderId || null,
-      sizing: r.sizing || null,
-      reason: r.reason || null,
-    }));
-
-    const runRecord = {
-      runDate,
-      timestamp: finishedAt.toISOString(),
-      durationSec,
-      forced,
-      summary: analysis.recommendations?.summary || null,
-      analystMeta: {
-        model: analysis.meta.model,
-        fellBack: analysis.meta.fellBack ?? false,
-        memoModel: memoResult?.meta.model ?? null,
-        stopReason: analysis.meta.stopReason,
-        webSearchesUsed: analysis.meta.webSearchesUsed,
-        inputTokens: analysis.meta.usage?.inputTokens ?? null,
-        outputTokens: analysis.meta.usage?.outputTokens ?? null,
-      },
-      recommendations: enrichedRecs,
+    const runRecord = recordFrom(execResult.results, {
+      analystMeta: analystMeta(memoResult?.meta.model ?? null),
       executor: execResult.summary,
-      briefingErrors: briefing.errors,
-      briefing,
-    };
+      executorTimeline: execResult.timeline || null,
+      executorNotices: execResult.notices || [],
+    });
 
     try {
       await st.archiveRun(runRecord);
+      partialRecord = null;
       log('Run archived.');
     } catch (archiveErr) {
       // Non-fatal: the run already happened. Just log loudly.
@@ -216,6 +298,7 @@ async function run({ force = false, deps = {} } = {}) {
     }
 
     // ── 8. FCM push ─────────────────────────────────────────────────────────
+    const enrichedRecs = runRecord.recommendations;
     try {
       const fcmResult = await d.fcmPublish('run_complete', {
         runDate,
@@ -249,15 +332,22 @@ async function run({ force = false, deps = {} } = {}) {
     log('Run complete: ' + JSON.stringify(result.execution));
     await st.logActivity('run_complete', {
       runDate,
-      durationSec,
+      durationSec: secondsSince(),
       recCount: enrichedRecs.length,
       summary: execResult.summary,
     });
 
     return result;
   } catch (err) {
-    const durationSec = Math.round((Date.now() - startedAt) / 1000);
+    const durationSec = secondsSince();
     log(`Pipeline FAILED after ${durationSec}s: ${err.stack || err.message}`);
+    if (partialRecord) {
+      try {
+        await st.archiveRun({ ...partialRecord, status: 'failed', durationSec });
+      } catch {
+        /* the activity entry below still records the failure */
+      }
+    }
     await st.logActivity('run_failed', {
       runDate,
       durationSec,
@@ -270,6 +360,9 @@ async function run({ force = false, deps = {} } = {}) {
       /* swallow — failure inside failure handler is just noise */
     }
     throw err;
+  } finally {
+    if (onSigterm) process.removeListener('SIGTERM', onSigterm);
+    st.markRunFinished();
   }
 }
 

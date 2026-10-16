@@ -76,6 +76,27 @@ test('POST /run/force queues exactly one forced run', async (t) => {
   assert.equal(store.consumeForcedRun(), false);
 });
 
+test('POST /run/force is refused while a run is in progress or already queued', async (t) => {
+  const { call } = await startApi(t);
+  store.markRunStarted();
+  const busy = await call('POST', '/run/force');
+  assert.equal(busy.status, 409);
+  assert.match(busy.json.error, /already in progress/);
+  assert.equal(store.forcedRunQueued(), false, 'nothing was queued');
+  store.markRunFinished();
+
+  assert.equal((await call('POST', '/run/force')).status, 202);
+  const again = await call('POST', '/run/force');
+  assert.equal(again.status, 409);
+  assert.match(again.json.error, /already queued/);
+});
+
+test('a running marker left by a dead process does not block a forced run', async (t) => {
+  const { dir, call } = await startApi(t);
+  fs.writeFileSync(path.join(dir, 'running'), JSON.stringify({ pid: 2 ** 22 + 12345, startedAt: 'earlier' }));
+  assert.equal((await call('POST', '/run/force')).status, 202);
+});
+
 test('POST /devices registers a token', async (t) => {
   const { call } = await startApi(t);
   assert.equal((await call('POST', '/devices', { body: {} })).status, 400);

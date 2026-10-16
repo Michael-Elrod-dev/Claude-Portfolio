@@ -70,6 +70,7 @@ import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
+import retrofit2.HttpException
 
 /**
  * Settings, in Kiln. Four cards: Connection, Bot controls, Briefing, Activity.
@@ -92,6 +93,8 @@ fun SettingsScreen() {
     val briefing = remember { mutableStateOf<BriefingPayload?>(null) }
     var briefingExpanded by remember { mutableStateOf(false) }
     var pendingForceRun by remember { mutableStateOf(false) }
+    // What happened to the last "Force run now" tap: started, or refused and why.
+    var forceRunNote by remember { mutableStateOf<String?>(null) }
 
     val scope = rememberCoroutineScope()
     val tick = LocalRefreshTick.current
@@ -171,7 +174,7 @@ fun SettingsScreen() {
                 HairlineDivider(color = KilnColors.hairlineRow)
                 SettingRow(
                     title = "Force run now",
-                    hint = "Bypasses the active flag · places real orders",
+                    hint = forceRunNote ?: "Bypasses the active flag · places real orders",
                     trailing = {
                         KilnButton(
                             label = "Run",
@@ -236,7 +239,15 @@ fun SettingsScreen() {
                     kind = ButtonKind.Danger,
                     onClick = {
                         pendingForceRun = false
-                        scope.launch { runCatching { api.runForce() } }
+                        scope.launch {
+                            forceRunNote = runCatching { api.runForce() }.fold(
+                                onSuccess = { "Run started · you'll get a push when it's done" },
+                                onFailure = { e ->
+                                    if (e is HttpException && e.code() == 409) "Refused: a run is already in progress"
+                                    else "Couldn't start the run: ${e.message}"
+                                },
+                            )
+                        }
                     },
                 )
             },

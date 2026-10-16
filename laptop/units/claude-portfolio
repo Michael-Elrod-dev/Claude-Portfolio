@@ -20,7 +20,12 @@ case "${1:-status}" in
     ;;
   on)  as_app sh -c "printf 'true\n' > $DATA/active.tmp && mv $DATA/active.tmp $DATA/active"; echo "switch: true" ;;
   off) as_app sh -c "printf 'false\n' > $DATA/active.tmp && mv $DATA/active.tmp $DATA/active"; echo "switch: false" ;;
-  force) as_app sh -c "date -Is > $DATA/force-run"; echo "forced run queued" ;;
+  force)
+    if systemctl is-active --quiet claude-portfolio-bot.service; then
+      echo "refused: a run is already in progress" >&2; exit 1
+    fi
+    if [ -e "$DATA/force-run" ]; then echo "refused: a forced run is already queued" >&2; exit 1; fi
+    as_app sh -c "date -Is > $DATA/force-run"; echo "forced run queued" ;;
   congressional) systemctl start --no-block claude-portfolio-congressional.service; echo "started" ;;
   logs) journalctl -u "claude-portfolio-${2:-bot}" -n 200 --no-pager ;;
   *) sed -n '2,8p' "$0"; exit 2 ;;

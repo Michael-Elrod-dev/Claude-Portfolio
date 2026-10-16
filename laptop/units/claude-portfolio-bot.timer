@@ -1,11 +1,13 @@
 [Unit]
-Description=Claude Portfolio trading run, Mon + Thu before the open
+Description=Claude Portfolio trading run: Mon + Thu before the open, Tue as a holiday make-up
 
 [Timer]
-# 09:00 Eastern, so orders queue before the 09:30 open and fill at it. The zone keeps
-# it at 09:00 across daylight saving. Not Persistent: a run missed while the laptop was
-# off is skipped rather than trading mid-day.
-OnCalendar=Mon,Thu *-*-* 09:00:00 America/New_York
+# 09:00 Eastern, so sells queue before the 09:30 open and fill at it. The zone keeps it
+# at 09:00 across daylight saving. Tuesday fires too, but the bot only runs then when
+# Monday was a market holiday (market.js scheduledRunDecision); a Thursday holiday is not
+# made up. Not Persistent: a run missed while the laptop was off is skipped rather than
+# trading mid-day.
+OnCalendar=Mon,Tue,Thu *-*-* 09:00:00 America/New_York
 AccuracySec=1s
 Persistent=false
 

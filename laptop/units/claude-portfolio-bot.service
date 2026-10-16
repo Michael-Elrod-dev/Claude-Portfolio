@@ -15,7 +15,8 @@ EnvironmentFile=/etc/claude-portfolio/claude-portfolio.env
 EnvironmentFile=/etc/claude-portfolio/secrets.env
 WorkingDirectory=/srv/claude-portfolio
 ExecStart=/usr/bin/node /opt/claude-portfolio/current/data-gatherers/bot/run.js
-TimeoutStartSec=45min
+# Buys can wait for sells until 20 min after the open; bot/run.js budgets 85 min.
+TimeoutStartSec=90min
 
 MemoryMax=1G
 

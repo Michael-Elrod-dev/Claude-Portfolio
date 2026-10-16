@@ -50,6 +50,14 @@ function notFound(message = 'not found') {
   };
 }
 
+function conflict(message) {
+  return {
+    statusCode: 409,
+    headers: HEADERS,
+    body: JSON.stringify({ error: message }),
+  };
+}
+
 function serverError(message = 'internal error') {
   return {
     statusCode: 500,
@@ -58,4 +66,4 @@ function serverError(message = 'internal error') {
   };
 }
 
-module.exports = { ok, accepted, badRequest, unauthorized, notFound, serverError };
+module.exports = { ok, accepted, badRequest, unauthorized, notFound, conflict, serverError };

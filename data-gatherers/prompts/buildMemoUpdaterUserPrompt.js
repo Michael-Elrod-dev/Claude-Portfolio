@@ -13,15 +13,17 @@
  * stays valid from run to run.
  */
 
-/** One line per order the executor handled: what was asked and what happened. */
+/**
+ * One entry per order the executor handled: what was asked and everything
+ * it learned (status, reason, final sizing, scaling, fill). Copied whole,
+ * not field by field, so a new executor field reaches the memo too.
+ */
 function orderOutcomes(execution) {
-  return (execution.results || []).map((r) => ({
-    action: r.recommendation?.action ?? null,
-    ticker: r.recommendation?.ticker ?? null,
-    amount: r.recommendation?.amount ?? null,
-    status: r.status,
-    orderId: r.orderId || null,
-    reason: r.reason || null,
+  return (execution.results || []).map(({ recommendation, ...outcome }) => ({
+    action: recommendation?.action ?? null,
+    ticker: recommendation?.ticker ?? null,
+    amount: recommendation?.amount ?? null,
+    ...outcome,
   }));
 }
 
@@ -50,10 +52,10 @@ ${JSON.stringify(recommendations, null, 2)}
 
 # What the executor did
 
-"executed" means the broker accepted the order, not that it has filled. On a scheduled run the orders go in before the open and fill at it.
+"executed" means the broker accepted the order; "fill" says whether and at what price it filled. "scaled" means a buy was shrunk to fit the cash actually available after this run's sells. "notices" explain anything unusual about the execution.
 
 \`\`\`json
-${JSON.stringify({ summary: execution.summary, orders: orderOutcomes(execution) }, null, 2)}
+${JSON.stringify({ summary: execution.summary, notices: execution.notices || [], timeline: execution.timeline || null, orders: orderOutcomes(execution) }, null, 2)}
 \`\`\`
 
 Produce the new memo as a single JSON object matching the schema in your instructions.`;

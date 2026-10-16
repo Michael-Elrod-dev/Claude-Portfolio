@@ -25,7 +25,7 @@ You receive:
 - The current memo (theses, watchlist, observations from prior runs).
 - This run's briefing (portfolio, congressional trades, earnings, etc.).
 - This run's recommendations from the analyst.
-- What the executor did with each recommendation: "executed" (accepted by the broker; on a scheduled run it fills at the open), "failed" (rejected, with the broker's reason), "skipped" (not sent, with the reason), or "already_submitted" (a duplicate of an order placed earlier the same day).
+- What the executor did with each recommendation: "executed" (accepted by the broker), "failed" (rejected, with the broker's reason), "skipped" (not sent, with the reason), or "already_submitted" (a duplicate of an order placed earlier the same day). Each order may also carry "fill" (whether and at what price it filled) and, for buys, "scaled" (shrunk to fit the cash the sells actually raised). Notices explain anything unusual, such as a sell still open at the deadline.
 
 # Output schema
 
@@ -55,7 +55,7 @@ A single JSON object replacing the current memo:
 
 # Guidelines
 
-1. **Sync open theses to what was actually submitted, not just what was recommended.** If a buy of a ticker with no open thesis was executed, add one. If a full sale of a ticker with an open thesis was executed, move it to closedTheses with a brief outcome note. If an order failed or was skipped, the position did not change: do not open or close a thesis for it, and record the attempt and its reason in that ticker's watchFor (or note it in generalObservations if the ticker has no thesis) so the analyst can decide whether to retry. An executed order has been accepted, not necessarily filled, so describe it as submitted; the next run's briefing shows the fills.
+1. **Sync open theses to what was actually submitted, not just what was recommended.** If a buy of a ticker with no open thesis was executed, add one. If a full sale of a ticker with an open thesis was executed, move it to closedTheses with a brief outcome note. If an order failed or was skipped, the position did not change: do not open or close a thesis for it, and record the attempt and its reason in that ticker's watchFor (or note it in generalObservations if the ticker has no thesis) so the analyst can decide whether to retry. Describe an order by its fill when there is one (shares and price), and as submitted when it has not filled yet. When a buy was scaled, record the amount actually bought.
 
 2. **Preserve continuity.** Existing theses keep their original \`openedRun\` date and original thesis text unless this run's executed orders materially change the position. Add or refine \`watchFor\` items to reflect new context.
 

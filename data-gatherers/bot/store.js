@@ -16,6 +16,7 @@
  *   active               "true" or "false": the only on/off switch for scheduled runs
  *   force-run            present while a forced run is queued (the API makes it,
  *                        a systemd path unit starts the bot, the bot removes it)
+ *   running              {pid, startedAt} while a run is in progress
  *
  * Runs and activity older than RETENTION_DAYS are pruned on write.
  */
@@ -212,6 +213,44 @@ async function requestForcedRun() {
   await writeAtomic(file('force-run'), `${new Date().toISOString()}\n`);
 }
 
+function forcedRunQueued() {
+  return fs.existsSync(file('force-run'));
+}
+
+// ── run in progress ─────────────────────────────────────────────────────────
+
+function markRunStarted(pid = process.pid) {
+  fs.mkdirSync(dataDir(), { recursive: true });
+  const tmp = file(`running.${pid}.tmp`);
+  fs.writeFileSync(tmp, JSON.stringify({ pid, startedAt: new Date().toISOString() }));
+  fs.renameSync(tmp, file('running'));
+}
+
+function markRunFinished(pid = process.pid) {
+  try {
+    const cur = JSON.parse(fs.readFileSync(file('running'), 'utf8'));
+    if (cur.pid === pid) fs.rmSync(file('running'), { force: true });
+  } catch {
+    /* nothing to clear */
+  }
+}
+
+/** The running run's {pid, startedAt}, or null. A marker left by a dead process is ignored. */
+function runInProgress() {
+  let cur;
+  try {
+    cur = JSON.parse(fs.readFileSync(file('running'), 'utf8'));
+  } catch {
+    return null;
+  }
+  try {
+    process.kill(cur.pid, 0);
+    return cur;
+  } catch (err) {
+    return err.code === 'EPERM' ? cur : null;
+  }
+}
+
 /** True if a forced run was queued; removes the request either way. */
 function consumeForcedRun() {
   try {
@@ -241,4 +280,8 @@ module.exports = {
   setActive,
   requestForcedRun,
   consumeForcedRun,
+  forcedRunQueued,
+  markRunStarted,
+  markRunFinished,
+  runInProgress,
 };

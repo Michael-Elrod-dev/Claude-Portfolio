@@ -37,6 +37,7 @@ function setup(t, overrides = {}) {
   };
   const deps = {
     loadSecrets: () => ({ ANTHROPIC_API_KEY: 'k', ALPACA_KEY_ID: 'k', ALPACA_SECRET_KEY: 'k', FINNHUB_API_KEY: 'k' }),
+    decideSchedule: async () => ({ run: true, reason: 'scheduled Mon run' }),
     fcmPublish: async (kind, data) => { pushes.push({ kind, data }); return { sent: 0 }; },
     makeAssembler: () => ({
       assemble: async () => ({ generatedAt: new Date().toISOString(), symbolsCovered: ['AMD'], errors: [], memo: { memo: PRIOR_MEMO } }),
@@ -44,8 +45,8 @@ function setup(t, overrides = {}) {
     makeAnalyst: () => ({
       analyze: async () => { calls.push('analyst'); return { recommendations: { summary: 's', recommendations: [REC] }, meta: META }; },
     }),
-    makeExecutor: () => ({
-      execute: async () => { calls.push('executor'); return execution; },
+    makeExecutor: (_secrets, runDate, opts) => ({
+      execute: async () => { calls.push('executor'); calls.executorArgs = { runDate, opts }; return execution; },
     }),
     makeMemoUpdater: () => ({
       update: async (args) => {
@@ -122,4 +123,85 @@ test('the memo prompt lists each order with its outcome and reason', () => {
   assert.match(prompt, /"status": "failed"/);
   assert.match(prompt, /insufficient buying power/);
   assert.doesNotMatch(prompt, /week/i);
+});
+
+test('a skipped schedule day costs nothing; a holiday leaves a note, a normal Tuesday does not', async (t) => {
+  const { deps, calls } = setup(t, { decideSchedule: async () => ({ run: false, reason: 'Thursday is a market holiday; the next run is Monday' }) });
+  await store.setActive(true);
+  const result = await run({ deps });
+  assert.equal(result.status, 'skipped');
+  assert.deepEqual(calls, [], 'no Claude call, no orders');
+  const [event] = await store.listActivity(5);
+  assert.equal(event.kind, 'run_skipped');
+  assert.match(event.payload.text, /Thursday is a market holiday/);
+
+  const quiet = setup(t, { decideSchedule: async () => ({ run: false, quiet: true, reason: 'Tuesday runs only after a Monday holiday' }) });
+  await run({ deps: quiet.deps });
+  assert.deepEqual(await store.listActivity(5), [], 'nothing logged on an ordinary Tuesday');
+});
+
+test('a forced run ignores the schedule', async (t) => {
+  let asked = false;
+  const { deps, calls } = setup(t, { decideSchedule: async () => { asked = true; return { run: false, reason: 'holiday' }; } });
+  await run({ force: true, deps });
+  assert.equal(asked, false);
+  assert.ok(calls.includes('executor'));
+});
+
+test('the run date is the Eastern date, and the executor gets a deadline inside the run budget', async (t) => {
+  const evening = Date.parse('2026-10-19T21:30:00-04:00'); // already Oct 20 in UTC
+  const { deps, calls } = setup(t, { now: () => evening });
+  await run({ force: true, deps });
+  assert.equal(calls.executorArgs.runDate, '2026-10-19');
+  const { deadlineAt } = calls.executorArgs.opts;
+  assert.ok(deadlineAt > evening && deadlineAt <= evening + 85 * 60_000);
+  assert.equal((await store.listRuns())[0].runDate, '2026-10-19');
+});
+
+test('the running marker is set during a run and cleared after, even on failure', async (t) => {
+  let seen = null;
+  const { deps } = setup(t, {
+    makeAnalyst: () => ({ analyze: async () => { seen = store.runInProgress(); throw new Error('boom'); } }),
+  });
+  await store.setActive(true);
+  await assert.rejects(run({ deps }), /boom/);
+  assert.equal(seen.pid, process.pid);
+  assert.equal(store.runInProgress(), null);
+});
+
+test('while buys wait, a partial record is archived; a failure after that marks it failed', async (t) => {
+  const { deps } = setup(t, {
+    makeExecutor: (_s, _d, opts) => ({
+      execute: async (recsObj) => {
+        await opts.onProgress({ sellResults: [], deferredBuys: recsObj.recommendations, waitUntil: Date.now() + 60_000 });
+        const partial = (await store.listRuns())[0];
+        assert.equal(partial.status, 'in_progress');
+        assert.equal(partial.recommendations[0].status, 'pending');
+        throw new Error('executor crashed mid-wait');
+      },
+    }),
+  });
+  await store.setActive(true);
+  await assert.rejects(run({ deps }), /crashed mid-wait/);
+  const [archived] = await store.listRuns();
+  assert.equal(archived.status, 'failed');
+  const events = (await store.listActivity(50)).map((e) => e.kind);
+  assert.ok(events.includes('orders_waiting'));
+});
+
+test('every field the executor reports reaches the archived recommendation', async (t) => {
+  const execution = {
+    summary: { total: 1, executed: 1, skipped: 0, failed: 0, alreadySubmitted: 0, filled: 1 },
+    results: [{ recommendation: REC, status: 'executed', orderId: 'o1', sizing: { kind: 'notional', value: 4 }, scaled: { from: 5, to: 4 }, fill: { status: 'filled', filledAvgPrice: 200 } }],
+    timeline: { waitMode: 'pre-open' },
+    notices: ['Buys asked for $5 with $4 available'],
+  };
+  const { deps } = setup(t, { makeExecutor: () => ({ execute: async () => execution }) });
+  await store.setActive(true);
+  await run({ deps });
+  const [archived] = await store.listRuns();
+  assert.deepEqual(archived.recommendations[0].scaled, { from: 5, to: 4 });
+  assert.equal(archived.recommendations[0].fill.filledAvgPrice, 200);
+  assert.deepEqual(archived.executorNotices, execution.notices);
+  assert.equal(archived.executorTimeline.waitMode, 'pre-open');
 });

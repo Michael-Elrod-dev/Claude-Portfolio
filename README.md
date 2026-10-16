@@ -16,7 +16,7 @@ Everything runs on the laptop as systemd units under one service user:
 
 | Unit | What it is | When it runs |
 |---|---|---|
-| **Bot** (`data-gatherers/`) | The trading run: briefing → analysis → memo → executor | `claude-portfolio-bot.timer`, Mon + Thu 09:00 America/New_York |
+| **Bot** (`data-gatherers/`) | The trading run: briefing → analysis → memo → executor | `claude-portfolio-bot.timer`, Mon + Thu 09:00 America/New_York (a Monday holiday moves to Tuesday; a Thursday holiday is skipped) |
 | **HTTP API** (`api/`) | What the Android app reads: Alpaca plus the bot's data, and a few writes | `claude-portfolio-api.service`, always on, behind Caddy |
 | **Congressional runner** (`congressional/`) | House + Senate disclosure ingest → the `congressional.json` snapshot the bot reads | `claude-portfolio-congressional.timer`, Sun + Wed 20:00 America/New_York |
 | **Backup** (`laptop/units/`) | Nightly archive of all the data to S3 | `claude-portfolio-backup.timer`, 03:20 |
@@ -27,7 +27,7 @@ Everything runs on the laptop as systemd units under one service user:
 ## Architecture
 
 ```
-Sun + Wed 20:00 ET                       Mon + Thu 09:00 ET (before the 09:30 open)
+Sun + Wed 20:00 ET                       Mon + Thu 09:00 ET (before the 09:30 open; Tue after a Monday holiday)
         │                                        │
         ▼                                        ▼
  Congressional runner  ──►  congressional.json   Bot  ──►  Briefing assembler
@@ -38,7 +38,8 @@ Sun + Wed 20:00 ET                       Mon + Thu 09:00 ET (before the 09:30 op
                                                   ▼
                                            Executor  ──►  Alpaca live account
                                                   │       (always real orders — no dry-run;
-                                                  │        market orders fill at the open)
+                                                  │        sells fill at the open, then buys
+                                                  │        are sized to the cash really there)
                                                   ▼
                                            MemoUpdater (Claude, no tools)  ──►  new memo.json
                                                   │       (from what was submitted, rejected, skipped)
@@ -514,6 +515,7 @@ activity.jsonl       append-only event log
 devices.json         FCM tokens
 active               "true" / "false" — the on/off switch for scheduled runs
 force-run            present while the app has queued a forced run
+running              {pid, startedAt} while a run is in progress (the API refuses force runs then)
 ```
 
 **Notes / considerations:**
@@ -594,8 +596,10 @@ trades — and therefore the one with the most defensive defaults.
 ```
 {
   asOf, runDate,
-  summary: { total, executed, skipped, failed, alreadySubmitted },
-  results: [{ recommendation, sizing, status, orderId, reason }]
+  summary: { total, executed, skipped, failed, alreadySubmitted, filled },
+  results: [{ recommendation, sizing, status, orderId, reason, scaled?, fill? }],
+  timeline: { market, waitMode, waitUntil, sellsSettledAt, sellProceeds, buyingPowerBefore, buyingPowerForBuys, ... },
+  notices: [ ... ]
 }
 ```
 
@@ -618,9 +622,28 @@ trades — and therefore the one with the most defensive defaults.
 - **Every recommendation is submitted, whatever its confidence.**
   Confidence is recorded with the result as Claude's stated conviction;
   the executor does not gate on it.
-- **Sells run before buys** so cash is freed before being deployed. The
-  executor waits for the sells to settle and refreshes the account before
-  placing buys.
+- **A run's buys can be funded by its own sells.** Alpaca accounts under
+  $2,000 are "limited margin": buying power is cash, but proceeds are
+  spendable as soon as a sell fills. A scheduled run places orders before
+  the 09:30 open, so:
+  1. Sells go in at once and fill at the open.
+  2. Buys are held while any sell on the account is open (this run's or an
+     earlier one's). The wait ends when they're all done, or 20 min after
+     the open (after *now* if the market is already open), never within 5
+     min of the close and never past the run's budget. If the next open is
+     too far away (a forced evening run), sells are queued and buys sized to
+     today's cash.
+  3. Buying power is re-read until it shows the proceeds.
+  4. Buys are sized to what's actually there. If they ask for more, every
+     buy shrinks by the same factor (never grows); any under $1 is dropped.
+     Buys go in as dollar amounts; a ticker that can't trade in fractions
+     gets whole shares. No buy is submitted in the minute after the open.
+  5. Fills are recorded on each result, so the run record and the memo say
+     what actually filled, at what price, and what was scaled.
+- **Recoveries.** A buy rejected for buying power is retried once at 98%
+  with a `-r1` client_order_id. A network error is checked against the
+  client_order_id before the order is called failed. A buy of a symbol
+  with an open sell is skipped (Alpaca's wash-trade protection).
 - **Idempotency via deterministic `client_order_id`.** Each order's ID
   is `cp-YYYYMMDD-TICKER-action`. If the cron fires twice or someone
   re-runs the script the same day, Alpaca rejects the duplicate rather
